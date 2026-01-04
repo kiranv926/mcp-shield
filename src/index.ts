@@ -12,3 +12,6 @@ export * from './interfaces';
 // Export all types
 export * from './types';
 
+// Export implementations
+export * from './mediator';
+

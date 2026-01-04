@@ -33,4 +33,8 @@ export type {
   SanitizationConfig,
   SanitizationResult,
 } from './IResponseRedactor';
+export type {
+  ITransport,
+  TransportConfig,
+} from './ITransport';
 
