@@ -157,10 +157,14 @@ export interface IMediator {
   /**
    * Forward a request to the MCP Server (for ALLOW decisions).
    * 
+   * Uses composite key (tenantId:sessionId:requestId) for request-response correlation
+   * to ensure multi-tenant isolation and prevent ID collisions.
+   * 
    * @param request - The JSON-RPC request to forward
+   * @param context - Request context for composite key generation (tenantId, sessionId)
    * @returns Promise resolving to MCP Server response
    */
-  forwardRequest(request: JSONRPCRequest): Promise<JSONRPCResponse>;
+  forwardRequest(request: JSONRPCRequest, context: RequestContext): Promise<JSONRPCResponse>;
 
   /**
    * Create a security error response (for BLOCK decisions).
