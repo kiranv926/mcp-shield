@@ -4,6 +4,80 @@
 
 MCP-Shield implements a **three-layer security architecture** based on the XACML (eXtensible Access Control Markup Language) pattern, adapted for the Model Context Protocol. This architecture separates concerns into Policy Enforcement, Policy Decision, and Policy Administration layers, ensuring deterministic, auditable, and scalable security governance.
 
+### Execution Flow
+
+Every request follows this **canonical fail-closed sequence**:
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Mediator as ShieldMediator (PEP)
+    participant Validator as Zod Validator
+    participant RateLimiter as IRateLimiter
+    participant TaintReg as TaintRegistry
+    participant RiskEval as RiskEvaluator (PDP)
+    participant PolicyMgr as PolicyManager (PAP)
+    participant Server as MCP Server
+    participant Redactor as ResponseRedactor
+    participant AuditLog as IAuditLogger
+
+    Client->>Mediator: 1. Request (unknown)
+    Mediator->>Validator: 2. Validate JSON-RPC
+    alt Validation Failed
+        Validator-->>Mediator: Invalid
+        Mediator->>AuditLog: Log Validation Error
+        Mediator-->>Client: BLOCK (-32602)
+    else Validation Success
+        Validator-->>Mediator: Parsed JSONRPCRequest
+        Mediator->>Mediator: 3. Extract Context (toolName, etc.)
+        Mediator->>RateLimiter: 4. Check Rate Limit
+        alt Rate Limit Exceeded
+            RateLimiter-->>Mediator: allowed: false
+            Mediator->>AuditLog: Log Rate Limit
+            Mediator-->>Client: BLOCK (-32002)
+        else Rate Limit OK
+            RateLimiter-->>Mediator: allowed: true
+            Mediator->>TaintReg: 5. Check Lineage (args)
+            TaintReg-->>Mediator: Taint Context
+            Mediator->>RiskEval: 6. Evaluate Risk
+            RiskEval->>PolicyMgr: Get Resolved Policy (MRW)
+            PolicyMgr-->>RiskEval: Policy Config
+            RiskEval->>RiskEval: Calculate R = f(S, E, T)
+            RiskEval-->>Mediator: Policy Decision
+            alt Decision: BLOCK
+                Mediator->>AuditLog: Log Decision
+                Mediator->>RateLimiter: Record Request (even if BLOCKED)
+                Mediator-->>Client: BLOCK (-32001)
+            else Decision: ALLOW
+                Mediator->>Server: 7. Forward Request
+                Server-->>Mediator: Response
+                Mediator->>RateLimiter: 8. Record Request
+                Mediator->>AuditLog: Log Decision
+                Mediator-->>Client: Response
+            else Decision: REDACT
+                Mediator->>Server: 7. Forward Request
+                Server-->>Mediator: Raw Response
+                Mediator->>Redactor: 9. Sanitize (Tier 1 + Tier 2)
+                Redactor-->>Mediator: Sanitized Response
+                Mediator->>RateLimiter: 8. Record Request
+                Mediator->>AuditLog: Log Decision
+                Mediator-->>Client: Sanitized Response
+            end
+        end
+    end
+```
+
+**Canonical Sequence (Fail-Closed)**:
+1. **Validation (Zod)**: Transform unknown → JSONRPCRequest (Fail? → BLOCK)
+2. **Context Extraction**: Extract toolName from params.name if method is callTool
+3. **Rate Limiting (Check)**: IRateLimiter.checkLimit() (Fail? → BLOCK)
+4. **Governance**: TaintRegistry.checkLineage() → RiskEvaluator.evaluate() → PolicyManager.getResolvedPolicy()
+5. **Enforcement**: If BLOCK → return error; If ALLOW/REDACT → forward to server
+6. **Rate Limiting (Record)**: IRateLimiter.recordRequest() (even if BLOCKED)
+7. **Sanitization**: If REDACT → IResponseRedactor.redact()
+
+See [ARCHITECTURE_DECISIONS.md](./ARCHITECTURE_DECISIONS.md) for detailed decision rationale.
+
 ## Architecture Layers
 
 ### Layer 1: Policy Enforcement Point (PEP) - ShieldMediator
@@ -59,12 +133,15 @@ interface ShieldMediator {
 
 #### Request Flow
 
-```
-MCP Client → ShieldMediator (PEP) → [Query PDP] → [Enforce Decision] → MCP Server
-                                      ↓
-                                  [BLOCK/REDACT]
-                                      ↓
-                                  MCP Client
+```mermaid
+graph LR
+    Client["MCP Client"] -->|"1. JSON-RPC Request"| PEP["ShieldMediator (PEP)"]
+    PEP -->|"2. Query PDP"| PDP["RiskEvaluator (PDP)"]
+    PDP -->|"3. Decision"| PEP
+    PEP -->|"4. ALLOW: Forward"| Server["MCP Server"]
+    PEP -.->|"BLOCK/REDACT"| Client
+    Server -->|"5. Response"| PEP
+    PEP -->|"6. Filtered Response"| Client
 ```
 
 ---
@@ -256,10 +333,16 @@ interface PolicyManager {
 
 #### Policy Lifecycle
 
-```
-Policy Definition (YAML/JSON) → Validation → Storage → Distribution → Activation
-                                                      ↓
-                                                  [Hot Reload]
+```mermaid
+graph LR
+    A["Policy Definition<br/>(YAML/JSON)"] -->|"1. Load"| B["Validation"]
+    B -->|"2. Validate"| C["Storage"]
+    C -->|"3. Store"| D["Distribution"]
+    D -->|"4. Distribute"| E["Activation"]
+    E -.->|"Hot Reload"| C
+    
+    style A fill:#e8f4f8,stroke:#2d5a88,stroke-width:2px
+    style E fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 ---
@@ -303,62 +386,61 @@ The **ResponseRedactor** implements the REDACT decision enforcement.
 
 ### Request Flow (Complete)
 
-```
-1. MCP Client sends JSON-RPC request
-   ↓
-2. ShieldMediator (PEP) intercepts request
-   ↓
-3. PEP queries RiskEvaluator (PDP) for decision
-   ↓
-4. PDP queries TaintRegistry for context lineage
-   ↓
-5. PDP fetches policies from PolicyManager (PAP)
-   ↓
-6. PDP calculates risk score: R = f(S, E, T)
-   ↓
-7. PDP returns decision (ALLOW/BLOCK/REDACT) to PEP
-   ↓
-8. PEP enforces decision:
-   - ALLOW → Forward to MCP Server
-   - BLOCK → Return error to client
-   - REDACT → Forward, then sanitize response
-   ↓
-9. PEP updates TaintRegistry with execution result
-   ↓
-10. PEP logs decision for audit
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant PEP as ShieldMediator (PEP)
+    participant PDP as RiskEvaluator (PDP)
+    participant TR as TaintRegistry
+    participant PAP as PolicyManager (PAP)
+    participant Server as MCP Server
+
+    Client->>PEP: 1. JSON-RPC Request
+    PEP->>PDP: 2. Query for Decision
+    PDP->>TR: 3. Query Context Lineage
+    TR-->>PDP: Context Data
+    PDP->>PAP: 4. Fetch Policies
+    PAP-->>PDP: Policy Config
+    PDP->>PDP: 5. Calculate R = f(S, E, T)
+    PDP-->>PEP: 6. Decision (ALLOW/BLOCK/REDACT)
+    
+    alt ALLOW
+        PEP->>Server: 7. Forward Request
+        Server-->>PEP: 8. Response
+        PEP->>TR: 9. Update Taint State
+        PEP->>PEP: 10. Log Decision
+        PEP-->>Client: 11. Response
+    else BLOCK
+        PEP->>PEP: 7. Log Decision
+        PEP-->>Client: 8. Security Error
+    else REDACT
+        PEP->>Server: 7. Forward Request
+        Server-->>PEP: 8. Raw Response
+        PEP->>PEP: 9. Sanitize Response
+        PEP->>TR: 10. Update Taint State
+        PEP->>PEP: 11. Log Decision
+        PEP-->>Client: 12. Sanitized Response
+    end
 ```
 
 ### Decision Flow Diagram
 
-```
-                    ┌─────────────┐
-                    │  MCP Client │
-                    └──────┬───────┘
-                           │ Request
-                           ▼
-              ┌────────────────────────┐
-              │ ShieldMediator (PEP)    │
-              │ • Intercept             │
-              │ • Query PDP             │
-              └──────┬──────────────────┘
-                     │
-         ┌───────────┴───────────┐
-         │                       │
-         ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐
-│ RiskEvaluator   │    │ PolicyManager    │
-│ (PDP)           │◄───│ (PAP)            │
-│ • Calculate R   │    │ • Fetch Policies │
-│ • Evaluate      │    └──────────────────┘
-└──────┬──────────┘
-       │
-       │ Query
-       ▼
-┌─────────────────┐
-│ TaintRegistry   │
-│ • Context       │
-│ • Lineage       │
-└─────────────────┘
+```mermaid
+graph TD
+    Client["**MCP Client**"] -->|"Request"| PEP["**ShieldMediator (PEP)**<br/>• Intercept<br/>• Query PDP"]
+    PEP -->|"Evaluate Risk"| PDP["**RiskEvaluator (PDP)**<br/>• Calculate R<br/>• Evaluate"]
+    PDP <-->|"Fetch Policies"| PAP["**PolicyManager (PAP)**<br/>• Fetch Policies"]
+    PDP -->|"Query Context"| TR["**TaintRegistry**<br/>• Context<br/>• Lineage"]
+    PDP -->|"Decision"| PEP
+    PEP -->|"Forward (ALLOW)"| Server["**MCP Server**"]
+    PEP -.->|"BLOCK"| Client
+    Server -->|"Response"| PEP
+    PEP -->|"Filtered Response"| Client
+    
+    style PEP fill:#fdf5e6,stroke:#d4a017,stroke-width:2px
+    style PDP fill:#2d5a88,stroke:#1a3a5a,stroke-width:2px,color:#fff
+    style PAP fill:#2d5a88,stroke:#1a3a5a,stroke-width:2px,color:#fff
+    style TR fill:#2d5a88,stroke:#1a3a5a,stroke-width:2px,color:#fff
 ```
 
 ---
@@ -397,31 +479,49 @@ The **ResponseRedactor** implements the REDACT decision enforcement.
 
 ### Sidecar Pattern (Recommended)
 
-```
-┌─────────────────────────────────────────┐
-│ MCP Client Pod/Container                │
-│  ┌──────────────┐  ┌─────────────────┐ │
-│  │ MCP Client   │  │ MCP-Shield      │ │
-│  │ (LLM)        │──│ (PEP/PDP/PAP)   │ │
-│  └──────────────┘  └────────┬─────────┘ │
-└─────────────────────────────┼───────────┘
-                               │
-                               ▼
-                    ┌──────────────────┐
-                    │ MCP Servers      │
-                    └──────────────────┘
+```mermaid
+graph TB
+    subgraph Pod["MCP Client Pod/Container"]
+        Client["MCP Client<br/>(LLM)"]
+        Shield["MCP-Shield<br/>(PEP/PDP/PAP)"]
+        Client -->|"Internal"| Shield
+    end
+    
+    Shield -->|"Filtered Requests"| Servers["MCP Servers"]
+    Servers -->|"Responses"| Shield
+    Shield -->|"Filtered Responses"| Client
+    
+    style Pod fill:#e8f4f8,stroke:#2d5a88,stroke-width:2px
+    style Shield fill:#fdf5e6,stroke:#d4a017,stroke-width:2px
 ```
 
 ### API Gateway Pattern
 
-```
-MCP Client → API Gateway → MCP-Shield (Middleware) → MCP Servers
+```mermaid
+graph LR
+    Client["MCP Client"] -->|"1. Request"| Gateway["API Gateway"]
+    Gateway -->|"2. Forward"| Shield["MCP-Shield<br/>(Middleware)"]
+    Shield -->|"3. Filtered Request"| Servers["MCP Servers"]
+    Servers -->|"4. Response"| Shield
+    Shield -->|"5. Filtered Response"| Gateway
+    Gateway -->|"6. Response"| Client
+    
+    style Shield fill:#fdf5e6,stroke:#d4a017,stroke-width:2px
 ```
 
 ### Service Mesh Pattern
 
-```
-MCP Client → Service Mesh → MCP-Shield (Policy Plugin) → MCP Servers
+```mermaid
+graph LR
+    Client["MCP Client"] -->|"1. Request"| Mesh["Service Mesh"]
+    Mesh -->|"2. Policy Plugin"| Shield["MCP-Shield<br/>(Policy Plugin)"]
+    Shield -->|"3. Filtered Request"| Servers["MCP Servers"]
+    Servers -->|"4. Response"| Shield
+    Shield -->|"5. Filtered Response"| Mesh
+    Mesh -->|"6. Response"| Client
+    
+    style Shield fill:#fdf5e6,stroke:#d4a017,stroke-width:2px
+    style Mesh fill:#e8f4f8,stroke:#2d5a88,stroke-width:2px
 ```
 
 ---
