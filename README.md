@@ -2,10 +2,9 @@
 
 **The Governance Layer for Model Context Protocol (MCP)**
 
-MCP-Shield is a deterministic security middleware designed to intercept, evaluate, and govern communication between AI Agents (MCP Clients) and Data Sources (MCP Servers).
-
-
 **Deterministic Policy Enforcement Point (PEP) for Model Context Protocol**
+
+MCP-Shield is a deterministic security middleware designed to intercept, evaluate, and govern communication between AI Agents (MCP Clients) and Data Sources (MCP Servers).
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue)](https://www.typescriptlang.org/)
@@ -32,63 +31,51 @@ MCP-Shield implements a **deterministic, non-permissive security model** that en
 
 ### High-Level Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         MCP Client (LLM)                                │
-│                    (Claude, GPT-4, etc.)                                │
-└────────────────────────────┬────────────────────────────────────────────┘
-                              │
-                              │ JSON-RPC Requests
-                              │ (callTool, listTools, etc.)
-                              ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    MCP-Shield: Policy Enforcement Point                 │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                    ShieldMediator (PEP)                          │  │
-│  │  • Intercepts all JSON-RPC requests                              │  │
-│  │  • Fail-Closed: BLOCK on timeout/failure                          │  │
-│  │  • Enforces: ALLOW | BLOCK | REDACT                               │  │
-│  │  • Stream-thru processing for R < 0.1                             │  │
-│  └───────────────────────┬──────────────────────────────────────────┘  │
-│                          │                                               │
-│  ┌───────────────────────▼──────────────────────────────────────────┐  │
-│  │                    RiskEvaluator (PDP)                            │  │
-│  │  R = clamp((W_s·S + W_e·E) × (1 - T), 0, 1)                      │  │
-│  │  • Evaluates tool metadata (MCP hints)                           │  │
-│  │  • Consults TaintRegistry for context lineage                     │  │
-│  │  • Deterministic: Same inputs → Same output                       │  │
-│  │  • Returns policy decision with risk score                        │  │
-│  └───────────────────────┬──────────────────────────────────────────┘  │
-│                          │                                               │
-│  ┌───────────────────────▼──────────────────────────────────────────┐  │
-│  │                    TaintRegistry (State Manager)                 │  │
-│  │  • Context-aware taint tracking (not session-wide)              │  │
-│  │  • Tracks tool output lineage per context                        │  │
-│  │  • Stateless per request, stateful per session                  │  │
-│  │  • Multi-tenant isolation by tenantId                           │  │
-│  └───────────────────────┬──────────────────────────────────────────┘  │
-│                          │                                               │
-│  ┌───────────────────────▼──────────────────────────────────────────┐  │
-│  │                    PolicyManager (PAP)                            │  │
-│  │  • Loads policies from YAML/JSON                                  │  │
-│  │  • Per-tenant policy configurations                              │  │
-│  │  • Dynamic policy updates (hot-reload)                            │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                          │                                               │
-│  ┌───────────────────────▼──────────────────────────────────────────┐  │
-│  │                    ResponseRedactor                               │  │
-│  │  • Two-tier sanitization: Schema + Pattern                       │  │
-│  │  • Field-level masking for secret: true                           │  │
-│  │  • NER-based scrubbing for unstructured text                     │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────┬────────────────────────────────────────────┘
-                              │
-                              │ Filtered/Enforced Requests
-                              ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         MCP Servers                                     │
-│              (File System, Database, APIs, etc.)                        │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    %% Global Styles
+    classDef shield fill:#fdf5e6,stroke:#d4a017,stroke-width:3px,color:#000;
+    classDef module fill:#2d5a88,stroke:#1a3a5a,stroke-width:2px,color:#fff;
+    classDef external fill:#f4f4f4,stroke:#333,stroke-width:2px;
+
+    %% External Components
+    Client["**MCP Client (LLM)**<br/>(Claude, GPT-4, etc.)"]:::external
+    Servers["**MCP Servers**<br/>(File System, Database, APIs, etc.)"]:::external
+
+    %% The MCP-Shield Container
+    subgraph Shield ["🔒 MCP-Shield: Policy Enforcement Point"]
+        direction TB
+        
+        PEP["**1. ShieldMediator (PEP)**<br/>• Intercepts all JSON-RPC requests<br/>• Fail-Closed: BLOCK on timeout/failure<br/>• Enforces: ALLOW | BLOCK | REDACT<br/>• Stream-thru processing for R < 0.1"]:::module
+        
+        PDP["**2. RiskEvaluator (PDP)**<br/>• R = clamp((Wₛ·S + Wₑ·E) × (1 - T), 0, 1)<br/>• Evaluates tool metadata (MCP hints)<br/>• Consults TaintRegistry for context lineage<br/>• Deterministic: Same inputs → Same output<br/>• Returns policy decision with risk score"]:::module
+        
+        TR["**3. TaintRegistry (State Manager)**<br/>• Context-aware taint tracking (not session-wide)<br/>• Tracks tool output lineage per context<br/>• Stateless per request, stateful per session<br/>• Multi-tenant isolation by tenantId"]:::module
+        
+        PAP["**4. PolicyManager (PAP)**<br/>• Loads policies from YAML/JSON<br/>• Per-tenant policy configurations<br/>• Dynamic policy updates (hot-reload)"]:::module
+        
+        RR["**5. ResponseRedactor**<br/>• Two-tier sanitization: Schema + Pattern<br/>• Field-level masking for secret: true<br/>• NER-based scrubbing for unstructured text"]:::module
+    end
+
+    %% Request Flow
+    Client -->|"1. JSON-RPC Requests<br/>(callTool, listTools, etc.)"| PEP
+    PEP -->|"2. Evaluate Risk"| PDP
+    PDP <-->|"3. Query Context Lineage"| TR
+    PDP <-->|"4. Fetch Policies"| PAP
+    PDP -->|"5. Decision (R, Action)"| PEP
+    
+    %% Forward Request
+    PEP -->|"6. Filtered/Enforced Requests<br/>(ALLOW)"| Servers
+    PEP -.->|"BLOCK"| Client
+    
+    %% Response Flow
+    Servers -->|"7. Raw Response"| PEP
+    PEP -->|"8. REDACT Decision"| RR
+    RR -->|"9. Sanitized Response"| Client
+    PEP -->|"10. ALLOW (Direct)"| Client
+
+    %% Apply Styles
+    class Shield shield
 ```
 
 ### Component Responsibilities
@@ -377,7 +364,7 @@ For security vulnerabilities, please see [SECURITY.md](SECURITY.md) for our resp
 
 ## License
 
-Copyright 2024 MCP-Shield Contributors
+Copyright 2024-2025 MCP-Shield Contributors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
