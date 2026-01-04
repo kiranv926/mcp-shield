@@ -1,5 +1,10 @@
 # MCP-Shield
 
+**The Governance Layer for Model Context Protocol (MCP)**
+
+MCP-Shield is a deterministic security middleware designed to intercept, evaluate, and govern communication between AI Agents (MCP Clients) and Data Sources (MCP Servers).
+
+
 **Deterministic Policy Enforcement Point (PEP) for Model Context Protocol**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
