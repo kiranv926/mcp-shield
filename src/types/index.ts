@@ -69,3 +69,15 @@ export {
   getErrorMessage,
 } from './errors';
 
+// Audit Types (Phase 3: Structured Audit Entries)
+export type {
+  AuditEntry,
+  SecureAuditEntry,
+  StructuredSystemErrorAuditEntry,
+  AuditEntryConverter,
+} from './audit';
+export {
+  DataTypePattern,
+  detectDataTypePattern,
+} from './audit';
+

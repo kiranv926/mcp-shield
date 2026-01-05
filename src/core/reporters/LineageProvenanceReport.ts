@@ -6,8 +6,6 @@
  * 
  * The report shows the complete data laundering path from origin to block, addressing the
  * "blind system" concern where data laundering was blocked but evidence couldn't be explained.
- * 
- * @see LINEAGE_PROVENANCE_REVIEW.md - Complete review and remediation plan
  */
 
 import type { IAuditLogger, AuditLogEntry } from '../../interfaces/IAuditLogger';

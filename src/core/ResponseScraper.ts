@@ -7,14 +7,6 @@
  * This utility provides the "Response-to-Registry" bridge, resolving Critical Issue #3
  * from the architecture review. It implements deep-traversal logic to find sensitive
  * strings in unstructured or structured JSON-RPC results.
- * 
- * @see TAINT_REGISTRY_REVIEW.md - Issue #3: Response Extraction
- */
-
-/**
- * ResponseScraper Utility
- * 
- * Extracts potential sensitive values from JSON-RPC responses for taint registration.
  */
 export class ResponseScraper {
   /**
