@@ -239,13 +239,14 @@ export class TaintRegistry implements ITaintRegistry {
     const trimmed = val.trim();
     
     // Check if value looks like a structured identifier (contains delimiters)
-    // Pattern: Contains digits and common delimiters (dash, colon, space, parentheses)
-    const structuredPattern = /^[\d\w\s\-:()]+$/;
+    // Pattern: Contains digits and common delimiters (dash, colon, space, parentheses, underscore)
+    const structuredPattern = /^[\d\w\s\-:()_]+$/;
     
     if (structuredPattern.test(trimmed) && /\d/.test(trimmed)) {
       // Likely an ID, SSN, phone, etc. - normalize by removing non-alphanumeric
-      // But preserve letters (e.g., "ACC-123" -> "ACC123", not "ACC123")
-      return trimmed.replace(/[^\w]/g, '');
+      // This handles: "ACC-12345", "ACC 12345", "ACC_12345" -> all become "ACC12345"
+      // Use [^a-zA-Z0-9] instead of [^\w] because \w includes underscore
+      return trimmed.replace(/[^a-zA-Z0-9]/g, '');
     }
     
     // For other strings, return as-is (email addresses, etc. should keep their format)

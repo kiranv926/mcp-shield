@@ -607,12 +607,94 @@ describe('Lineage Provenance Report', () => {
     expect(report).toContain('BLOCK');
     expect(report).toContain('slack:post_message');
     
-    // Verify that both origin tools are shown in the report when available
-    if (lineage.originTools && lineage.originTools.length > 1) {
-      expect(report).toContain('api:transform_data');
-      // Verify the full path is shown
-      expect(report).toMatch(/database:read_row\s*→\s*api:transform_data/);
+      // Verify that both origin tools are shown in the report when available
+      if (lineage.originTools && lineage.originTools.length > 1) {
+        expect(report).toContain('api:transform_data');
+        // Verify the full path is shown
+        expect(report).toMatch(/database:read_row\s*→\s*api:transform_data/);
+      }
+    });
+
+  it('should generate JSON audit report for SIEM integration', async () => {
+    const sessionId = 'session-json-test';
+    const tenantId = 'tenant-json';
+
+    // Step 1: Create a tool request that generates audit logs
+    const request: JSONRPCRequest = {
+      jsonrpc: '2.0',
+      id: 'req-json-1',
+      method: 'tools/call',
+      params: {
+        name: 'database:read_row',
+        arguments: {
+          table: 'users',
+          id: 'user-456',
+        },
+      },
+    };
+
+    const response: JSONRPCResponse = {
+      jsonrpc: '2.0',
+      id: 'req-json-1',
+      result: {
+        id: 'user-456',
+        email: 'test@example.com',
+        name: 'Test User',
+      },
+    };
+
+    serverTransport.setResponse('req-json-1', response);
+
+    await mediator.intercept(request, {
+      sessionId,
+      tenantId,
+      requestId: 'req-json-1',
+      timestamp: new Date(),
+    });
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Generate JSON report
+    const jsonReport = await reportGenerator.generateReportJSON(sessionId, tenantId);
+
+    // Verify JSON structure
+    expect(jsonReport).toBeDefined();
+    expect(jsonReport).toHaveProperty('sessionId', sessionId);
+    expect(jsonReport).toHaveProperty('tenantId', tenantId);
+    expect(jsonReport).toHaveProperty('generatedAt');
+    expect(jsonReport).toHaveProperty('privacyLevel');
+    expect(jsonReport).toHaveProperty('totalEvents');
+    expect(jsonReport).toHaveProperty('events');
+    expect(Array.isArray((jsonReport as any).events)).toBe(true);
+
+    // Verify event structure
+    if ((jsonReport as any).events.length > 0) {
+      const event = (jsonReport as any).events[0];
+      expect(event).toHaveProperty('requestId');
+      expect(event).toHaveProperty('sessionId');
+      expect(event).toHaveProperty('tenantId');
+      expect(event).toHaveProperty('tool');
+      expect(event).toHaveProperty('action');
+      expect(event).toHaveProperty('riskScore');
+      expect(event).toHaveProperty('policyVersion');
+      expect(event).toHaveProperty('timestamp');
+      expect(event).toHaveProperty('originTools');
+      expect(event).toHaveProperty('taintContexts');
+      expect(event).toHaveProperty('reason');
+      expect(Array.isArray(event.originTools)).toBe(true);
+      expect(Array.isArray(event.taintContexts)).toBe(true);
     }
+
+    // Verify JSON is serializable
+    const jsonString = JSON.stringify(jsonReport);
+    expect(jsonString).toBeDefined();
+    expect(jsonString.length).toBeGreaterThan(0);
+
+    // Verify it can be parsed back
+    const parsed = JSON.parse(jsonString);
+    expect(parsed.sessionId).toBe(sessionId);
+    expect(parsed.tenantId).toBe(tenantId);
   });
 });
 

@@ -452,15 +452,25 @@ export class ShieldMediator implements IMediator {
 
       // Step 5: Enforcement
       if (decision.action === 'BLOCK') {
+        // CRITICAL FIX: Include lineage metadata for BLOCK decisions too
+        // This ensures origin tools are available in audit logs even when blocking
+        const lineageMetadata = lineageResult ? {
+          originTools: lineageResult.originTools || [],
+          matchedContextIds: lineageResult.relevantContexts.map(c => c.contextId),
+          highestSensitivity: lineageResult.highestSensitivity,
+          containsSecrets: lineageResult.containsSecrets,
+        } : undefined;
+
         await this.auditLogger.logDecision({
           requestId,
           sessionId: context.sessionId,
           tenantId: context.tenantId,
           decision,
-          taintContexts: [],
+          taintContexts: lineageResult?.relevantContexts || [],
           policyVersion: decision.policyVersion,
           timestamp: Date.now(),
           toolName,
+          metadata: lineageMetadata,
         });
 
         // Step 6: Rate Limiting (Record) - even if BLOCKED
