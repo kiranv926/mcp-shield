@@ -516,6 +516,57 @@ export class ShieldMediator implements IMediator {
         }
       }
 
+      // CRITICAL FIX (Issue #3): Extract and register taint from server response
+      // This enables actual data value tracking, not just tool name tracking
+      if (serverResponse.result && toolName && (decision.action === 'ALLOW' || decision.action === 'REDACT')) {
+        try {
+          // Extract sensitive values from tool response
+          const sensitiveValues = this.extractSensitiveValues(serverResponse.result);
+          
+          // Only register taint if tool produced sensitive data
+          // Check if tool annotations indicate sensitivity or if decision was REDACT
+          const toolAnnotations = enrichedContext.toolAnnotations;
+          const isSensitive = 
+            toolAnnotations?.sensitive !== undefined ||
+            toolAnnotations?.secret === true ||
+            decision.action === 'REDACT' ||
+            decision.riskScore >= 0.3; // Moderate to high risk
+          
+          if (isSensitive && sensitiveValues.length > 0) {
+            // Register taint with actual data values
+            await this.taintRegistry.registerTaint(
+              {
+                sourceTool: toolName,
+                sensitivityLevel: this.inferSensitivityFromDecision(decision) as number,
+                containsSecrets: toolAnnotations?.secret === true || false,
+                sessionId: context.sessionId,
+                tenantId: context.tenantId,
+              },
+              sensitiveValues // CRITICAL: Pass actual data values
+            );
+          }
+        } catch (error) {
+          // Fail-closed: Taint registration failure is logged but doesn't block response
+          // This is non-critical for the current request but important for future requests
+          await this.auditLogger.logSystemError({
+            requestId,
+            sessionId: context.sessionId,
+            tenantId: context.tenantId,
+            error: {
+              type: error instanceof Error ? error.constructor.name : 'Error',
+              message: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined,
+            },
+            failedComponent: 'TaintRegistry',
+            action: 'BLOCK', // System error defaults to BLOCK for audit consistency
+            timestamp: Date.now(),
+            context: {
+              toolName,
+            },
+          });
+        }
+      }
+
       // Log successful decision
       await this.auditLogger.logDecision({
         requestId,
@@ -715,6 +766,62 @@ export class ShieldMediator implements IMediator {
     }
 
     return response;
+  }
+
+  /**
+   * Extract sensitive values from tool response (Issue #3: Response Extraction)
+   * 
+   * Recursively extracts all string values from the JSON response.
+   * These values are then hashed and stored in TaintRegistry for lineage tracking.
+   * 
+   * @param result - Tool response result (any JSON-serializable value)
+   * @returns Array of extracted string values
+   */
+  private extractSensitiveValues(result: unknown): string[] {
+    const values: string[] = [];
+    
+    const findStrings = (obj: unknown, depth = 0): void => {
+      // DoS protection: limit recursion depth
+      if (depth > 10) {
+        return;
+      }
+      
+      if (typeof obj === 'string') {
+        // Only extract meaningful strings (length >= 3, <= 1024)
+        if (obj.length >= 3 && obj.length <= 1024) {
+          values.push(obj);
+        }
+      } else if (Array.isArray(obj)) {
+        for (const item of obj) {
+          findStrings(item, depth + 1);
+        }
+      } else if (typeof obj === 'object' && obj !== null) {
+        for (const value of Object.values(obj)) {
+          findStrings(value, depth + 1);
+        }
+      }
+      // Numbers and booleans are converted to strings during tokenization
+    };
+    
+    findStrings(result);
+    
+    return values;
+  }
+  
+  /**
+   * Infer sensitivity level from policy decision
+   * 
+   * Maps risk score to sensitivity level for taint registration.
+   */
+  private inferSensitivityFromDecision(decision: PolicyDecision): number {
+    // Map risk score to sensitivity level (returns numeric value)
+    if (decision.riskScore >= 0.7) {
+      return 1.0; // Confidential/Restricted
+    } else if (decision.riskScore >= 0.3) {
+      return 0.5; // Internal
+    } else {
+      return 0.0; // Public
+    }
   }
 
   /**

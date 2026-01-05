@@ -90,10 +90,19 @@ export interface ITaintRegistry {
    * Creates a taint context when a tool returns sensitive data.
    * The taint is context-specific, not session-wide, to reduce false positives.
    * 
+   * CRITICAL FIX (Issue #1, #3): Now accepts optional dataValues parameter
+   * for actual data value extraction from tool responses.
+   * 
    * @param context - Taint context to register
+   * @param dataValues - Optional array of actual data values extracted from tool response
+   *                    If provided, these values are hashed and stored for lineage matching.
+   *                    If not provided, falls back to legacy behavior (tool name tracking).
    * @returns Promise resolving to registered context ID
    */
-  registerTaint(context: Omit<TaintContext, 'contextId' | 'timestamp'>): Promise<string>;
+  registerTaint(
+    context: Omit<TaintContext, 'contextId' | 'timestamp'>,
+    dataValues?: string[]
+  ): Promise<string>;
 
   /**
    * Query taint contexts for a session.
