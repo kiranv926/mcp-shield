@@ -180,6 +180,7 @@ export interface ITaintRegistry {
     highestSensitivity: SensitivityLevel | null;
     relevantContexts: TaintContext[];
     containsSecrets: boolean;
+    originTools?: string[]; // IMPROVEMENT: Return origin tools for audit trail
   }>;
 
   /**

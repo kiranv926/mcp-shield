@@ -35,6 +35,7 @@ import type { IRateLimiter } from '../interfaces/IRateLimiter';
 import type { IResponseRedactor } from '../interfaces/IResponseRedactor';
 import type { IAuditLogger } from '../interfaces/IAuditLogger';
 import type { ITransport } from '../interfaces/ITransport';
+import { ResponseScraper } from '../core/ResponseScraper';
 
 /**
  * ShieldMediator Configuration
@@ -357,6 +358,7 @@ export class ShieldMediator implements IMediator {
           requestId,
         };
 
+        // Rate limit blocks don't have lineage (request never reached governance)
         await this.auditLogger.logDecision({
           requestId,
           sessionId: context.sessionId,
@@ -366,6 +368,9 @@ export class ShieldMediator implements IMediator {
           policyVersion: 'rate-limit',
           timestamp: Date.now(),
           toolName,
+          metadata: {
+            reason: 'rate_limit',
+          },
         });
 
         // Step 6: Rate Limiting (Record) - even if BLOCKED
@@ -383,10 +388,38 @@ export class ShieldMediator implements IMediator {
       }
 
       // Step 4: Governance (PDP/PEP)
+      // Check taint lineage and evaluate risk
+      // CRITICAL FIX: Capture lineage result for audit logging before governance evaluation
+      let lineageResult: Awaited<ReturnType<typeof this.taintRegistry.checkLineage>> | null = null;
+      
+      // Perform lineage check if this is a tool call
+      if (parsedRequest.method === 'callTool' && parsedRequest.params) {
+        const params = parsedRequest.params as Record<string, unknown>;
+        try {
+          lineageResult = await Promise.race([
+            this.taintRegistry.checkLineage(
+              params,
+              enrichedContext.sessionId,
+              enrichedContext.tenantId
+            ),
+            new Promise<Awaited<ReturnType<typeof this.taintRegistry.checkLineage>>>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`TaintRegistry timeout after ${this.taintTimeout}ms`)),
+                this.taintTimeout
+              )
+            ),
+          ]);
+        } catch (error) {
+          // Fail-closed: TaintRegistry timeout or error - lineageResult remains null
+          // This will be handled in evaluateRequest
+        }
+      }
+      
+      // Evaluate governance decision (lineageResult passed for efficiency)
       let decision: PolicyDecision;
       try {
         decision = await Promise.race([
-          this.evaluateRequest(parsedRequest, enrichedContext),
+          this.evaluateRequest(parsedRequest, enrichedContext, lineageResult),
           new Promise<PolicyDecision>((_, reject) =>
             setTimeout(
               () => reject(new GovernanceViolationError(
@@ -567,16 +600,26 @@ export class ShieldMediator implements IMediator {
         }
       }
 
-      // Log successful decision
+      // Log successful decision with lineage provenance metadata
+      // CRITICAL FIX: Pass origin tools and taint contexts from lineage check to audit logger
+      // This ensures the complete data laundering path is available for audit reports
+      const lineageMetadata = lineageResult ? {
+        originTools: lineageResult.originTools || [],
+        matchedContextIds: lineageResult.relevantContexts.map(c => c.contextId),
+        highestSensitivity: lineageResult.highestSensitivity,
+        containsSecrets: lineageResult.containsSecrets,
+      } : undefined;
+
       await this.auditLogger.logDecision({
         requestId,
         sessionId: context.sessionId,
         tenantId: context.tenantId,
         decision,
-        taintContexts: [],
+        taintContexts: lineageResult?.relevantContexts || [],
         policyVersion: decision.policyVersion,
         timestamp: Date.now(),
         toolName,
+        metadata: lineageMetadata,
       });
 
       return serverResponse;
@@ -617,19 +660,27 @@ export class ShieldMediator implements IMediator {
 
   /**
    * Evaluate a JSON-RPC request and get policy decision.
+   * 
+   * @param request - JSON-RPC request to evaluate
+   * @param context - Request context
+   * @param lineageResult - Optional pre-computed lineage check result (for audit logging)
    */
   async evaluateRequest(
     request: JSONRPCRequest,
-    context: RequestContext
+    context: RequestContext,
+    lineageResult?: Awaited<ReturnType<typeof this.taintRegistry.checkLineage>> | null
   ): Promise<PolicyDecision> {
     try {
       // Check taint lineage if tool arguments exist (with timeout protection)
+      // CRITICAL FIX: Use pre-computed lineageResult if available (from intercept)
+      // Otherwise, compute it here (for backward compatibility)
       let taintSensitivity: number | null = null;
       let taintOriginTool: string | null = null;
-      if (request.method === 'callTool' && request.params) {
+      
+      if (!lineageResult && request.method === 'callTool' && request.params) {
         const params = request.params as Record<string, unknown>;
         try {
-          const lineageResult = await Promise.race([
+          lineageResult = await Promise.race([
             this.taintRegistry.checkLineage(
               params,
               context.sessionId,
@@ -642,20 +693,21 @@ export class ShieldMediator implements IMediator {
               )
             ),
           ]);
-
-          if (lineageResult.highestSensitivity !== null) {
-            // SensitivityLevel enum values are already numbers (0.0, 0.5, 1.0)
-            taintSensitivity = lineageResult.highestSensitivity;
-            
-            // Fix: Extract originTool from relevantContexts (first context is the origin)
-            const firstContext = lineageResult.relevantContexts[0];
-            if (firstContext) {
-              taintOriginTool = firstContext.sourceTool;
-            }
-          }
         } catch (error) {
           // Fail-closed: TaintRegistry timeout or error defaults to maximum sensitivity
           taintSensitivity = 1.0;
+          lineageResult = null;
+        }
+      }
+
+      if (lineageResult && lineageResult.highestSensitivity !== null) {
+        // SensitivityLevel enum values are already numbers (0.0, 0.5, 1.0)
+        taintSensitivity = lineageResult.highestSensitivity;
+        
+        // Fix: Extract originTool from relevantContexts (first context is the origin)
+        const firstContext = lineageResult.relevantContexts[0];
+        if (firstContext) {
+          taintOriginTool = firstContext.sourceTool;
         }
       }
 
@@ -771,41 +823,15 @@ export class ShieldMediator implements IMediator {
   /**
    * Extract sensitive values from tool response (Issue #3: Response Extraction)
    * 
-   * Recursively extracts all string values from the JSON response.
-   * These values are then hashed and stored in TaintRegistry for lineage tracking.
+   * IMPROVEMENT: Now uses ResponseScraper utility for consistent extraction logic.
+   * The ResponseScraper handles sub-token extraction and DoS protection.
    * 
    * @param result - Tool response result (any JSON-serializable value)
    * @returns Array of extracted string values
    */
   private extractSensitiveValues(result: unknown): string[] {
-    const values: string[] = [];
-    
-    const findStrings = (obj: unknown, depth = 0): void => {
-      // DoS protection: limit recursion depth
-      if (depth > 10) {
-        return;
-      }
-      
-      if (typeof obj === 'string') {
-        // Only extract meaningful strings (length >= 3, <= 1024)
-        if (obj.length >= 3 && obj.length <= 1024) {
-          values.push(obj);
-        }
-      } else if (Array.isArray(obj)) {
-        for (const item of obj) {
-          findStrings(item, depth + 1);
-        }
-      } else if (typeof obj === 'object' && obj !== null) {
-        for (const value of Object.values(obj)) {
-          findStrings(value, depth + 1);
-        }
-      }
-      // Numbers and booleans are converted to strings during tokenization
-    };
-    
-    findStrings(result);
-    
-    return values;
+    // Use ResponseScraper for consistent extraction logic
+    return ResponseScraper.scrape(result);
   }
   
   /**
