@@ -159,13 +159,25 @@ class MockPolicyManager implements IPolicyManager {
 }
 
 class MockRateLimiter implements IRateLimiter {
-  async checkLimit(_tenantId: string, _toolName: string): Promise<boolean> { return true; }
-  async recordRequest(_tenantId: string, _toolName: string): Promise<void> {}
-  async getStatus(_tenantId: string, _toolName: string): Promise<any> {
-    return { allowed: true, remaining: 100, resetAt: new Date() };
+  async checkLimit(_tenantId?: string, _toolName?: string): Promise<any> {
+    return {
+      allowed: true,
+      currentCount: 0,
+      maxRequests: 100,
+      resetInSeconds: 60,
+    };
   }
-  async reset(_tenantId: string, _toolName: string): Promise<void> {}
-  async configure(_config: any): Promise<void> {}
+  async recordRequest(_tenantId?: string, _toolName?: string): Promise<void> {}
+  async getStatus(_tenantId?: string, _toolName?: string): Promise<any> {
+    return {
+      allowed: true,
+      currentCount: 0,
+      maxRequests: 100,
+      resetInSeconds: 60,
+    };
+  }
+  async reset(_tenantId?: string, _toolName?: string): Promise<void> {}
+  async configure(_config: any, _tenantId?: string, _toolName?: string): Promise<void> {}
   async healthCheck(): Promise<boolean> { return true; }
 }
 

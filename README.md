@@ -120,11 +120,16 @@ A stateful session manager that implements **context-aware taint tracking** (not
 
 #### 4. PolicyManager (Policy Administration Point - PAP)
 The policy administration component that:
-- Loads security policies from YAML/JSON configuration files
-- Supports per-tenant policy configurations
+- Loads security policies from JSON configuration files
+- Supports per-tenant and per-tool policy configurations
 - Enables dynamic policy updates (hot-reload) without service restart
 - Defines risk thresholds, weights (W_s, W_e), and enforcement rules
-- Manages allowlists/denylists for tools and destinations
+- Applies "Most Restrictive Wins" (MRW) conflict resolution
+- Provides policy versioning and rollback capabilities
+
+**📖 See [POLICY_MANAGER_USAGE.md](./POLICY_MANAGER_USAGE.md) for comprehensive usage guide and examples.**
+
+**📖 See [RATE_LIMITER_USAGE.md](./RATE_LIMITER_USAGE.md) for rate limiting configuration and usage guide.**
 
 #### 5. ResponseRedactor
 The sanitization engine that implements **two-tier redaction**:
@@ -249,7 +254,7 @@ MCP-Shield provides enterprise-grade multi-tenancy:
 - **Session Isolation**: TaintRegistry and PolicyManager are scoped by `tenantId`, ensuring complete data isolation
 - **Per-Tenant Risk Thresholds**: Each tenant can configure custom risk thresholds (e.g., financial services: 0.5, development: 0.8)
 - **Tenant-Specific Policies**: PolicyManager supports per-tenant policy configurations (YAML/JSON)
-- **Resource Quotas**: Per-tenant rate limiting and session count limits
+- **Resource Quotas**: Per-tenant rate limiting and session count limits (see [RATE_LIMITER_USAGE.md](./RATE_LIMITER_USAGE.md))
 - **Audit Trail**: All logs include tenant ID for compliance and billing
 
 ### Performance Characteristics
@@ -297,9 +302,11 @@ npm install @mcp-shield/core
 import { ShieldMediator, RiskEvaluator, TaintRegistry, PolicyManager } from '@mcp-shield/core';
 
 const policyManager = new PolicyManager({
-  policyPath: './policies/default.yaml',
+  policyPath: './policies/default.json',
   enableHotReload: true
 });
+
+await policyManager.loadPolicies();
 
 const taintRegistry = new TaintRegistry({
   sessionTTL: 3600,
@@ -332,10 +339,10 @@ This project is currently in the design and implementation phase. Core component
 
 - [x] Architecture design and threat model
 - [x] Risk formula validation and normalization
-- [ ] Core ShieldMediator implementation with fail-closed logic
+- [x] Core ShieldMediator implementation with fail-closed logic
 - [ ] RiskEvaluator with normalized formula `R = clamp((W_s·S + W_e·E) × (1 - T), 0, 1)`
-- [ ] TaintRegistry with context-aware taint tracking
-- [ ] PolicyManager (PAP) with YAML/JSON policy loading
+- [x] TaintRegistry with context-aware taint tracking
+- [x] PolicyManager (PAP) with JSON policy loading
 - [ ] ResponseRedactor with two-tier sanitization
 - [ ] Protocol compliance testing (MCP PR validation)
 - [ ] Enterprise audit logging with structured JSON

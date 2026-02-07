@@ -195,28 +195,38 @@ class MockPolicyManager implements IPolicyManager {
 }
 
 class MockRateLimiter implements IRateLimiter {
-  async checkLimit(_tenantId: string, _toolName: string): Promise<boolean> {
-    return true;
-  }
-
-  async recordRequest(_tenantId: string, _toolName: string): Promise<void> {
-    // Mock implementation
-  }
-
-  async getStatus(_tenantId: string, _toolName: string): Promise<any> {
+  async checkLimit(_tenantId?: string, _toolName?: string): Promise<any> {
     return {
       allowed: true,
-      remaining: 100,
-      resetAt: new Date(Date.now() + 3600000),
+      currentCount: 0,
+      maxRequests: 100,
+      resetInSeconds: 60,
     };
   }
 
-  async reset(_tenantId: string, _toolName: string): Promise<void> {
+  async recordRequest(_tenantId?: string, _toolName?: string): Promise<void> {
     // Mock implementation
   }
 
-  async configure(_config: any): Promise<void> {
+  async getStatus(_tenantId?: string, _toolName?: string): Promise<any> {
+    return {
+      allowed: true,
+      currentCount: 0,
+      maxRequests: 100,
+      resetInSeconds: 60,
+    };
+  }
+
+  async reset(_tenantId?: string, _toolName?: string): Promise<void> {
     // Mock implementation
+  }
+
+  async configure(_config: any, _tenantId?: string, _toolName?: string): Promise<void> {
+    // Mock implementation
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return true;
   }
 
   async healthCheck(): Promise<boolean> {
@@ -436,7 +446,13 @@ describe('ShieldMediator', () => {
     });
 
     it('should block request when rate limit exceeded', async () => {
-      mockRateLimiter.checkLimit = jest.fn().mockResolvedValue(false);
+      mockRateLimiter.checkLimit = jest.fn().mockResolvedValue({
+        allowed: false,
+        currentCount: 101,
+        maxRequests: 100,
+        resetInSeconds: 30,
+        reason: 'Rate limit exceeded: 101/100 requests in 60s window',
+      });
 
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',

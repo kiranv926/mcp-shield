@@ -334,12 +334,12 @@ export class ShieldMediator implements IMediator {
       };
 
       // Step 3: Rate Limiting (Check)
-      const rateLimitAllowed = await this.rateLimiter.checkLimit(
+      const rateLimitResult = await this.rateLimiter.checkLimit(
         context.tenantId ?? 'default',
         toolName
       );
 
-      if (!rateLimitAllowed) {
+      if (!rateLimitResult.allowed) {
         const rateLimitDecision: PolicyDecision = {
           action: 'BLOCK',
           riskScore: createRiskScore(1.0),
@@ -425,7 +425,7 @@ export class ShieldMediator implements IMediator {
               () => reject(new GovernanceViolationError(
                 `Evaluation timeout after ${this.evaluationTimeout}ms`,
                 'RiskEvaluator',
-                MCPShieldErrorCodes.SYSTEM_ERROR
+                MCPShieldErrorCodes.POLICY_VIOLATION
               )),
               this.evaluationTimeout
             )

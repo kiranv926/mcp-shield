@@ -154,10 +154,10 @@ export interface IPolicyManager {
   /**
    * Load policies from configuration file.
    * 
-   * @param configPath - Path to policy configuration file (YAML/JSON)
+   * @param configPath - Path to policy configuration file (YAML/JSON). Optional - uses configured path if not provided.
    * @returns Promise resolving when policies are loaded
    */
-  loadPolicies(configPath: string): Promise<void>;
+  loadPolicies(configPath?: string): Promise<void>;
 
   /**
    * Get resolved policy for a specific context.
