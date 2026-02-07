@@ -15,4 +15,5 @@ export * from './types';
 // Export implementations
 export * from './mediator';
 export * from './core';
+export * from './transport';
 
