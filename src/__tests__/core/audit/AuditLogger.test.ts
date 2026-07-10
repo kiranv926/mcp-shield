@@ -266,6 +266,50 @@ describe('AuditLogger', () => {
     });
   });
 
+  describe('bounded cache', () => {
+    it('should evict oldest in-memory entries beyond maxCacheEntries', async () => {
+      const boundedDir = join(tmpdir(), `mcp-shield-bound-${Date.now()}`);
+      const bounded = new AuditLogger({ logDirectory: boundedDir, maxCacheEntries: 3 });
+
+      try {
+        for (let i = 0; i < 10; i++) {
+          await bounded.logDecision({
+            requestId: `req-${i}`,
+            sessionId: 'session-1',
+            toolName: 'tool-1',
+            decision: {
+              action: 'ALLOW',
+              riskScore: createRiskScore(0.1),
+              justification: 'Test',
+              timestamp: new Date(),
+              policyVersion: '1.0',
+              requestId: `req-${i}`,
+              riskBreakdown: {
+                sensitivity: 0.0,
+                exposure: 0,
+                trust: 1.0,
+                weightSensitivity: 0.6,
+                weightExposure: 0.4,
+                rawScore: 0.0,
+                finalScore: createRiskScore(0.0),
+              },
+            },
+            taintContexts: [],
+            policyVersion: '1.0',
+            timestamp: Date.now(),
+          });
+        }
+
+        // Cache is bounded to 3; only the most recent entries are retained.
+        const logs = await bounded.queryLogs({ sessionId: 'session-1' });
+        expect(logs).toHaveLength(3);
+        expect(logs.map(l => l.requestId)).toEqual(['req-7', 'req-8', 'req-9']);
+      } finally {
+        await fs.rm(boundedDir, { recursive: true, force: true }).catch(() => undefined);
+      }
+    });
+  });
+
   describe('healthCheck', () => {
     it('should return true when logger is healthy', async () => {
       const healthy = await logger.healthCheck();

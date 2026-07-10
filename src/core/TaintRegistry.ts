@@ -85,7 +85,30 @@ interface TaintEntry {
  */
 const MAX_VALUE_LENGTH = 1024; // Maximum length for value extraction
 const MIN_VALUE_LENGTH = 3; // Minimum length to prevent noise
-const MAX_TOKENS_PER_REQUEST = 500; // Maximum tokens per lineage check (DoS protection)
+
+/**
+ * Default traversal / token caps (DoS protection).
+ *
+ * SECURITY FIX (depth & token evasion): Raised from depth 5 / 500 tokens so an
+ * attacker can no longer bury tainted data at depth >= 6 or beyond token 500 and
+ * evade the lineage check. These are defaults for configurable instance fields
+ * (see TaintRegistry.maxTraversalDepth / maxTokensPerRequest). The check-side cap
+ * is kept >= the registration-side cap in ResponseScraper so anything registered
+ * can still be matched.
+ */
+const DEFAULT_MAX_TRAVERSAL_DEPTH = 12;
+const DEFAULT_MAX_TOKENS_PER_REQUEST = 2000; // Maximum tokens per lineage check (DoS protection)
+
+/**
+ * Common English / structural words that must NOT be treated as taint sub-tokens.
+ * Mirrors ResponseScraper.STOPWORDS so registration and checking stay symmetric.
+ */
+const SUBTOKEN_STOPWORDS = new Set<string>([
+  'the', 'and', 'for', 'are', 'was', 'you', 'your', 'from', 'with', 'this',
+  'that', 'user', 'name', 'email', 'code', 'ids', 'item', 'items', 'tag',
+  'tags', 'type', 'data', 'value', 'null', 'true', 'false', 'info', 'key',
+  'secret', 'password', 'token', 'number', 'phone', 'address', 'account',
+]);
 
 /**
  * TaintRegistry - State Manager Implementation
@@ -126,6 +149,14 @@ export class TaintRegistry implements ITaintRegistry {
    * Configuration
    */
   private config: TaintRegistryConfig;
+
+  /**
+   * Configurable DoS caps for lineage-check tokenization (SECURITY FIX).
+   * Defaults raised from depth 5 / 500 tokens; can be overridden via
+   * setTokenizationLimits() without changing the shared TaintRegistryConfig interface.
+   */
+  private maxTraversalDepth = DEFAULT_MAX_TRAVERSAL_DEPTH;
+  private maxTokensPerRequest = DEFAULT_MAX_TOKENS_PER_REQUEST;
 
   /**
    * Constructor
@@ -614,24 +645,36 @@ export class TaintRegistry implements ITaintRegistry {
    */
   private tokenizeParams(params: Record<string, unknown>): Set<string> {
     const tokens = new Set<string>();
-    
+    let truncated = false;
+
     // Use recursive extraction to get all string values
     const extractStrings = (obj: unknown, depth = 0): void => {
-      if (depth > 5 || tokens.size >= MAX_TOKENS_PER_REQUEST) {
-        return; // DoS protection: max depth and max tokens
+      // DoS protection: max depth and max tokens (SECURITY FIX: raised caps + fail-safe)
+      if (depth > this.maxTraversalDepth || tokens.size >= this.maxTokensPerRequest) {
+        truncated = true;
+        return;
       }
-      
+
       if (typeof obj === 'string') {
         const trimmed = obj.trim();
-        
+
         // Add the string itself (for exact matching)
         if (trimmed.length >= MIN_VALUE_LENGTH && trimmed.length <= MAX_VALUE_LENGTH) {
           tokens.add(trimmed);
-          
+
           // IMPROVEMENT: Extract sub-tokens for partial matching (Issue #1)
           // Split by common delimiters (spaces, colons, dashes, slashes, underscores)
           // This handles cases like "Your secret code is X55-99" -> ["X55", "99"]
           this.extractSubTokens(trimmed, tokens);
+        }
+      } else if (typeof obj === 'number' && Number.isFinite(obj)) {
+        // SECURITY FIX (numeric taint evasion): Only tokenize numbers as strings
+        // with the same MIN length gate used at registration time, so registration
+        // (ResponseScraper) and checking stay symmetric. Booleans are intentionally
+        // NOT tokenized (they would match every request carrying a boolean).
+        const asString = String(obj);
+        if (asString.length >= MIN_VALUE_LENGTH) {
+          tokens.add(asString);
         }
       } else if (Array.isArray(obj)) {
         for (const item of obj) {
@@ -641,15 +684,43 @@ export class TaintRegistry implements ITaintRegistry {
         for (const value of Object.values(obj)) {
           extractStrings(value, depth + 1);
         }
-      } else if (typeof obj === 'number' || typeof obj === 'boolean') {
-        // Convert numbers/booleans to strings for matching
-        tokens.add(String(obj));
       }
     };
-    
+
     extractStrings(params);
-    
+
+    // FAIL-SAFE: If a DoS cap was hit, we may have skipped tainted inputs. Log a
+    // truncation warning rather than silently under-checking lineage.
+    if (truncated) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[TaintRegistry] Tokenization cap hit (maxDepth=${this.maxTraversalDepth}, ` +
+        `maxTokens=${this.maxTokensPerRequest}). Lineage check may be incomplete for ` +
+        `this request; treating as potentially under-covered.`
+      );
+    }
+
     return tokens;
+  }
+
+  /**
+   * Configure DoS tokenization limits (SECURITY FIX: configurable caps).
+   * Depth and token caps guard against unbounded traversal; raising them closes
+   * the "bury data deep / late" evasion while remaining bounded.
+   */
+  public setTokenizationLimits(limits: { maxDepth?: number; maxTokens?: number }): void {
+    if (limits.maxDepth !== undefined) {
+      if (!Number.isInteger(limits.maxDepth) || limits.maxDepth < 1 || limits.maxDepth > 100) {
+        throw new Error(`maxDepth must be an integer between 1 and 100, got: ${limits.maxDepth}`);
+      }
+      this.maxTraversalDepth = limits.maxDepth;
+    }
+    if (limits.maxTokens !== undefined) {
+      if (!Number.isInteger(limits.maxTokens) || limits.maxTokens < 1 || limits.maxTokens > 100000) {
+        throw new Error(`maxTokens must be an integer between 1 and 100000, got: ${limits.maxTokens}`);
+      }
+      this.maxTokensPerRequest = limits.maxTokens;
+    }
   }
   
   /**
@@ -668,17 +739,70 @@ export class TaintRegistry implements ITaintRegistry {
    */
   private extractSubTokens(val: string, tokens: Set<string>): void {
     // Split by common delimiters: spaces, colons, dashes, slashes, underscores, parentheses
-    const subParts = val.split(/[:\-_ \/\\()\[\]]+/);
-    
+    const subParts = val.split(/[:\-_ /\\()[\]]+/);
+
     if (subParts.length > 1) {
       for (const part of subParts) {
         const trimmed = part.trim();
-        // Only add meaningful sub-tokens (length >= MIN_VALUE_LENGTH)
-        if (trimmed.length >= MIN_VALUE_LENGTH && trimmed.length <= MAX_VALUE_LENGTH) {
+        // SECURITY FIX (sub-token false positives): Only register identifier/secret-like
+        // sub-tokens. Plain dictionary words (e.g. "User" from "User ID: 12345") are
+        // dropped so they don't over-taint unrelated later calls.
+        if (this.isMeaningfulSubToken(trimmed)) {
           tokens.add(trimmed);
         }
       }
     }
+  }
+
+  /**
+   * Decide whether a delimiter-split sub-token is worth tracking as a taint.
+   *
+   * Mirrors ResponseScraper.isMeaningfulSubToken so registration and checking are
+   * symmetric. Kept: tokens with digits, camelCase/mixed-internal-case, long tokens
+   * (>= 12 chars), and high-entropy random-looking tokens. Dropped: short plain
+   * words like "User", "code", "secret".
+   */
+  private isMeaningfulSubToken(token: string): boolean {
+    if (token.length < MIN_VALUE_LENGTH || token.length > MAX_VALUE_LENGTH) {
+      return false;
+    }
+    if (SUBTOKEN_STOPWORDS.has(token.toLowerCase())) {
+      return false;
+    }
+    // Plain dictionary-shaped word (optional leading capital + lowercase) -> skip unless long.
+    if (/^[A-Za-z][a-z]+$/.test(token) && token.length < 12) {
+      return false;
+    }
+    if (/\d/.test(token)) {
+      return true; // ids / codes / secrets
+    }
+    if (/[a-z][A-Z]/.test(token)) {
+      return true; // camelCase secrets
+    }
+    if (token.length >= 12) {
+      return true; // long tokens are likely ids/secrets
+    }
+    if (this.shannonEntropy(token) >= 3.0) {
+      return true; // random-looking high-entropy tokens
+    }
+    return false;
+  }
+
+  /**
+   * Shannon entropy (bits) of a string. Random secrets have high entropy;
+   * dictionary words have low entropy.
+   */
+  private shannonEntropy(s: string): number {
+    const freq = new Map<string, number>();
+    for (const ch of s) {
+      freq.set(ch, (freq.get(ch) ?? 0) + 1);
+    }
+    let entropy = 0;
+    for (const count of freq.values()) {
+      const p = count / s.length;
+      entropy -= p * Math.log2(p);
+    }
+    return entropy;
   }
 
 

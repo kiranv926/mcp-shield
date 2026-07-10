@@ -84,6 +84,30 @@ export interface IRateLimiter {
   ): Promise<RateLimitResult>;
 
   /**
+   * Atomically check the rate limit AND record the request in a single
+   * synchronous critical section.
+   *
+   * This is the enforcement-safe primitive: because the check and the record
+   * happen without any intervening `await`, concurrent callers cannot all pass
+   * the check before any of them records (the TOCTOU race that the separate
+   * checkLimit()/recordRequest() pair is vulnerable to).
+   *
+   * A token is consumed ONLY when the request is allowed. When the limit is
+   * already reached the call returns `allowed: false` and records nothing.
+   *
+   * Returns synchronously (not a Promise) to make the atomicity guarantee
+   * explicit — there is no suspension point between check and record.
+   *
+   * @param tenantId - Tenant identifier (optional for global limits)
+   * @param toolName - Tool name being invoked (optional for tenant-level limits)
+   * @returns Rate limit result reflecting the state AFTER any consumption
+   */
+  tryConsume(
+    tenantId?: string,
+    toolName?: string
+  ): RateLimitResult;
+
+  /**
    * Record a request for rate limit tracking.
    * 
    * This method increments the request counter for the given tenant/tool.

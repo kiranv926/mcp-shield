@@ -2,16 +2,16 @@
 
 ## Supported Versions
 
-We actively support security updates for the following versions:
+TaintGate is currently in pre-1.0 development. We actively support security
+updates for the latest `0.x` release line only:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.x.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+| 0.x     | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
-We take the security of MCP-Shield seriously. If you believe you have found a security vulnerability, please report it to us as described below.
+We take the security of TaintGate seriously. If you believe you have found a security vulnerability, please report it to us as described below.
 
 ### Reporting Process
 
@@ -19,11 +19,12 @@ We take the security of MCP-Shield seriously. If you believe you have found a se
 
 Instead, please report them via one of the following methods:
 
-1. **Email (Preferred)**: TBD
-   - Use the subject line: `[SECURITY] Brief description of the issue`
-   - Encrypt sensitive details using our PGP key (see below)
+1. **GitHub Security Advisories (Preferred)**: Report privately through the
+   [GitHub Security Advisory form](https://github.com/kiranv926/taintgate/security/advisories/new).
+   This keeps the report private and lets us collaborate on a fix directly.
 
-2. **GitHub Security Advisories**: Use the [GitHub Security Advisory](https://github.com/your-org/mcp-shield/security/advisories/new) feature (if you have access)
+2. **Email**: `security@taintgate.dev`
+   - Use the subject line: `[SECURITY] Brief description of the issue`
 
 ### What to Include
 
@@ -36,26 +37,6 @@ Please include the following information in your report:
 - **Proof-of-concept or exploit code** (if possible)
 - **Impact of the issue**, including how an attacker might exploit the issue
 - **Your suggested fix** (if you have one)
-
-### PGP Key for Encrypted Reports
-
-For sensitive security reports, please encrypt your message using our PGP key:
-
-```
------BEGIN PGP PUBLIC KEY BLOCK-----
-
-[PGP Key will be added when available]
-
------END PGP PUBLIC KEY BLOCK-----
-```
-
-**Key ID**: [To be added]  
-**Fingerprint**: [To be added]
-
-You can download the key from public keyservers:
-```bash
-gpg --keyserver keyserver.ubuntu.com --recv-keys [KEY_ID]
-```
 
 ### Response SLA
 
@@ -97,7 +78,7 @@ The following are **not** considered security vulnerabilities:
 
 ### Security Best Practices
 
-If you're using MCP-Shield in production:
+If you're using TaintGate in production:
 
 1. **Keep dependencies updated**: Regularly update to the latest stable version
 2. **Review security advisories**: Subscribe to GitHub security alerts
@@ -110,17 +91,17 @@ If you're using MCP-Shield in production:
 ### Security Updates
 
 Security updates are released as:
-- **Patch releases** (e.g., 1.0.1) for critical security fixes
-- **Minor releases** (e.g., 1.1.0) for security enhancements
-- **Security advisories** published on GitHub and via email to subscribers
+- **Patch releases** (e.g., 0.2.1) for critical security fixes
+- **Minor releases** (e.g., 0.3.0) for security enhancements
+- **Security advisories** published on GitHub
 
 ### Contact
 
 For general security questions or concerns:
-- **Email**: security@mcp-shield.io
-- **GitHub Discussions**: [Security Discussions](https://github.com/your-org/mcp-shield/discussions/categories/security)
+- **Email**: `security@taintgate.dev`
+- **GitHub Discussions**: [Security Discussions](https://github.com/kiranv926/taintgate/discussions/categories/security)
 
 ---
 
-**Thank you for helping keep MCP-Shield and its users safe!**
+**Thank you for helping keep TaintGate and its users safe!**
 

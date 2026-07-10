@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { TaintRegistry } from '../../core/TaintRegistry';
+import { ResponseScraper } from '../../core/ResponseScraper';
 import { SensitivityLevel } from '../../types/mcp-hints';
 import type { TaintContext } from '../../types/common';
 
@@ -817,6 +818,120 @@ describe('TaintRegistry', () => {
 
       // Short values should not be stored (noise filtering)
       expect(result.highestSensitivity).toBeNull();
+    });
+  });
+
+  describe('Security Fix: Numeric taint evasion (registration/check symmetry)', () => {
+    it('should taint a secret returned as a JSON number and flag a later call consuming it', async () => {
+      // Simulate a tool response where the secret is returned as a JSON *number*.
+      const secretNumber = 9087654321; // e.g. an account/secret code as a number
+      const toolResponse = { account: { code: secretNumber, label: 'primary' } };
+
+      // Registration path: ResponseScraper must extract numeric leaves (symmetry fix).
+      const scraped = ResponseScraper.scrape(toolResponse);
+      expect(scraped).toContain(String(secretNumber));
+
+      await registry.registerTaint(
+        createTaintContext('numberTool', SensitivityLevel.Confidential, 'session-num'),
+        scraped
+      );
+
+      // A later tool call consuming that same value (as a number) must be flagged.
+      const result = await registry.checkLineage(
+        { forwardTo: 'sink', payload: secretNumber },
+        'session-num'
+      );
+
+      expect(result.highestSensitivity).toBe(SensitivityLevel.Confidential);
+      expect(result.relevantContexts.length).toBeGreaterThan(0);
+    });
+
+    it('should match a numeric secret whether it arrives as a number or its string form', async () => {
+      await registry.registerTaint(
+        createTaintContext('numberTool', SensitivityLevel.Restricted, 'session-num2'),
+        ResponseScraper.scrape({ token: 5551239876 })
+      );
+
+      const asNumber = await registry.checkLineage({ v: 5551239876 }, 'session-num2');
+      const asString = await registry.checkLineage({ v: '5551239876' }, 'session-num2');
+
+      expect(asNumber.highestSensitivity).toBe(SensitivityLevel.Restricted);
+      expect(asString.highestSensitivity).toBe(SensitivityLevel.Restricted);
+    });
+  });
+
+  describe('Security Fix: Sub-token false positives', () => {
+    it('should NOT over-taint an unrelated later call from a common word like "User"', async () => {
+      // A tool returns "User ID: 12345"; the meaningful id (12345) is tainted, but the
+      // dictionary word "User" must not be registered as a taint on its own.
+      const scraped = ResponseScraper.scrape({ note: 'User ID: 12345' });
+      expect(scraped).not.toContain('User');
+      expect(scraped).toContain('12345');
+
+      await registry.registerTaint(
+        createTaintContext('lookupTool', SensitivityLevel.Confidential, 'session-sub'),
+        scraped
+      );
+
+      // Unrelated later call that merely mentions the word "User" (no real id) -> not tainted.
+      const unrelated = await registry.checkLineage(
+        { message: 'User logged in successfully' },
+        'session-sub'
+      );
+      expect(unrelated.highestSensitivity).toBeNull();
+      expect(unrelated.relevantContexts).toEqual([]);
+
+      // But a call that actually reuses the tainted id IS still flagged.
+      const reused = await registry.checkLineage({ id: '12345' }, 'session-sub');
+      expect(reused.highestSensitivity).toBe(SensitivityLevel.Confidential);
+    });
+
+    it('should still track a real high-entropy secret token', async () => {
+      const secret = 'aB3xK9mZ7qLw2Rt'; // high-entropy, mixed-case + digits
+      const scraped = ResponseScraper.scrape({ credential: `Bearer ${secret}` });
+      expect(scraped).toContain(secret);
+
+      await registry.registerTaint(
+        createTaintContext('authTool', SensitivityLevel.Restricted, 'session-sub2', undefined, true),
+        scraped
+      );
+
+      const result = await registry.checkLineage(
+        { authorization: secret },
+        'session-sub2'
+      );
+      expect(result.highestSensitivity).toBe(SensitivityLevel.Restricted);
+      expect(result.containsSecrets).toBe(true);
+    });
+  });
+
+  describe('Security Fix: Depth cap evasion', () => {
+    it('should still taint deeply-nested sensitive data at a reasonable depth', async () => {
+      // Bury a sensitive value at depth 8 (previously beyond the depth-5 cap).
+      let nested: any = { secretCode: 'X9f3Kq7Zt10' };
+      for (let i = 0; i < 8; i++) {
+        nested = { level: nested };
+      }
+
+      const scraped = ResponseScraper.scrape(nested);
+      expect(scraped).toContain('X9f3Kq7Zt10');
+
+      await registry.registerTaint(
+        createTaintContext('deepTool', SensitivityLevel.Confidential, 'session-deep'),
+        scraped
+      );
+
+      const result = await registry.checkLineage(
+        { exfil: 'X9f3Kq7Zt10' },
+        'session-deep'
+      );
+      expect(result.highestSensitivity).toBe(SensitivityLevel.Confidential);
+    });
+
+    it('should expose configurable tokenization limits', () => {
+      expect(() => registry.setTokenizationLimits({ maxDepth: 20, maxTokens: 5000 })).not.toThrow();
+      expect(() => registry.setTokenizationLimits({ maxDepth: 0 })).toThrow();
+      expect(() => registry.setTokenizationLimits({ maxTokens: -1 })).toThrow();
     });
   });
 

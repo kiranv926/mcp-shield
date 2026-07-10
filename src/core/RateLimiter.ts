@@ -149,6 +149,55 @@ export class RateLimiter implements IRateLimiter {
   }
 
   /**
+   * Atomically check-and-record in a single synchronous critical section.
+   *
+   * Node.js runs this method to completion without yielding (no `await` inside),
+   * so N concurrent callers are serialized: once the window is full, every
+   * subsequent caller sees the recorded timestamps and is denied. This closes
+   * the TOCTOU gap present in the separate checkLimit()/recordRequest() pattern.
+   *
+   * A token is consumed only when the request is allowed.
+   */
+  tryConsume(
+    tenantId?: string,
+    toolName?: string
+  ): RateLimitResult {
+    const key = this.buildKey(tenantId, toolName);
+    const entry = this.getOrCreateEntry(key);
+
+    const now = Date.now();
+    this.updateWindow(entry, now);
+
+    const currentCount = entry.timestamps.length;
+    const maxRequests = entry.config.maxRequests;
+    const allowed = currentCount < maxRequests;
+
+    if (allowed) {
+      // Record within the same synchronous section as the check.
+      this.addTimestamp(entry, now);
+
+      // Enforce max entries limit (DoS protection)
+      if (this.entries.size > this.maxEntries) {
+        this.evictOldestEntry();
+      }
+    }
+
+    // Reported count reflects state AFTER any consumption.
+    const reportedCount = allowed ? currentCount + 1 : currentCount;
+    const resetInSeconds = this.calculateResetTime(entry, now);
+
+    return {
+      allowed,
+      currentCount: reportedCount,
+      maxRequests,
+      resetInSeconds,
+      reason: allowed
+        ? undefined
+        : `Rate limit exceeded: ${currentCount}/${maxRequests} requests in ${entry.config.windowSeconds}s window`,
+    };
+  }
+
+  /**
    * Record a request for rate limit tracking
    */
   async recordRequest(

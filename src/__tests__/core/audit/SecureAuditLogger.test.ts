@@ -237,8 +237,9 @@ describe('SecureAuditLogger', () => {
       }
 
       const secureLogs = logger.getSecureLogs();
-      const isValid = await logger.verifyIntegrity(secureLogs);
-      expect(isValid).toBe(true);
+      const result = await logger.verifyIntegrity(secureLogs);
+      expect(result.valid).toBe(true);
+      expect(result.entryCount).toBe(2);
     });
 
     it('should detect tampering in hash chain', async () => {
@@ -306,15 +307,115 @@ describe('SecureAuditLogger', () => {
         secureLogs[0].decision.act = 'BLOCK'; // Change action
       }
 
-      // Now verifyIntegrity should detect that entry2's prevSig doesn't match
-      // the recalculated hash of the tampered entry1
-      const isValid = await logger.verifyIntegrity(secureLogs);
-      expect(isValid).toBe(false);
+      // Now verifyIntegrity should detect the tamper: the recomputed signature
+      // (and/or chain hash) of the modified entry1 no longer matches.
+      const result = await logger.verifyIntegrity(secureLogs);
+      expect(result.valid).toBe(false);
+      expect(result.failedIndex).toBe(0);
+      expect(result.failedRequestId).toBe('req-1');
+      expect(result.reason).toBe('SIGNATURE_MISMATCH');
     });
 
     it('should return true for empty chain', async () => {
-      const isValid = await logger.verifyIntegrity([]);
-      expect(isValid).toBe(true);
+      const result = await logger.verifyIntegrity([]);
+      expect(result.valid).toBe(true);
+      expect(result.entryCount).toBe(0);
+    });
+
+    it('should detect a forged signature even when the chain hashes line up', async () => {
+      const entry: AuditLogEntry = {
+        requestId: 'req-forge',
+        sessionId: 'session-1',
+        toolName: 'tool-1',
+        decision: {
+          action: 'ALLOW',
+          riskScore: createRiskScore(0.1),
+          justification: 'Test',
+          timestamp: new Date(),
+          policyVersion: '1.0',
+          requestId: 'req-forge',
+          riskBreakdown: {
+            sensitivity: 0.0,
+            exposure: 0,
+            trust: 1.0,
+            weightSensitivity: 0.6,
+            weightExposure: 0.4,
+            rawScore: 0.0,
+            finalScore: createRiskScore(0.0),
+          },
+        },
+        taintContexts: [],
+        policyVersion: '1.0',
+        timestamp: Date.now(),
+      };
+
+      await logger.logDecision(entry);
+      const secureLogs = logger.getSecureLogs();
+
+      // Attacker overwrites the signature with a bogus but well-formed value.
+      if (secureLogs[0]) {
+        secureLogs[0].sig = 'v2:hmac-sha256:deadbeefdeadbeef:'
+          + '0'.repeat(64);
+      }
+
+      const result = await logger.verifyIntegrity(secureLogs);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('SIGNATURE_MISMATCH');
+    });
+
+    it('should verify a chain that interleaves logDecision and logSystemError', async () => {
+      const makeDecision = (id: string): AuditLogEntry => ({
+        requestId: id,
+        sessionId: 'session-mix',
+        tenantId: 'tenant-1',
+        toolName: 'tool-mix',
+        decision: {
+          action: 'ALLOW',
+          riskScore: createRiskScore(0.2),
+          justification: `Decision ${id}`,
+          timestamp: new Date(),
+          policyVersion: '1.0',
+          requestId: id,
+          riskBreakdown: {
+            sensitivity: 0.0,
+            exposure: 0,
+            trust: 1.0,
+            weightSensitivity: 0.6,
+            weightExposure: 0.4,
+            rawScore: 0.0,
+            finalScore: createRiskScore(0.0),
+          },
+        },
+        taintContexts: [],
+        policyVersion: '1.0',
+        timestamp: Date.now(),
+      });
+
+      const makeSystemError = (id: string): SystemErrorAuditEntry => ({
+        requestId: id,
+        sessionId: 'session-mix',
+        tenantId: 'tenant-1',
+        error: { type: 'TimeoutError', message: `boom ${id}` },
+        failedComponent: 'TaintRegistry',
+        action: 'BLOCK',
+        timestamp: Date.now(),
+        context: { toolName: 'tool-mix' },
+      });
+
+      // Interleave the two entry types; a system error in the middle must NOT
+      // break verification of the entries that follow it.
+      await logger.logDecision(makeDecision('req-1'));
+      await logger.logSystemError(makeSystemError('err-1'));
+      await logger.logDecision(makeDecision('req-2'));
+      await logger.logSystemError(makeSystemError('err-2'));
+      await logger.logDecision(makeDecision('req-3'));
+
+      const secureLogs = logger.getSecureLogs();
+      expect(secureLogs).toHaveLength(5);
+
+      const result = await logger.verifyIntegrity(secureLogs);
+      expect(result.valid).toBe(true);
+      expect(result.entryCount).toBe(5);
     });
   });
 

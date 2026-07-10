@@ -527,7 +527,7 @@ export class PolicyManager implements IPolicyManager {
             // Log error but don't throw (hot-reload is best-effort)
             // Previous policy remains active (fail-safe)
             // Suppress console.error in test environments to reduce noise
-            if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test' && !(global as any).jest) {
+            if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test' && !(global as { jest?: unknown }).jest) {
               console.error(`Hot-reload failed: ${error instanceof Error ? error.message : String(error)}`);
             }
           }

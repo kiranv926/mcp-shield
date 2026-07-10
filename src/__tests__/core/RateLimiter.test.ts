@@ -157,6 +157,78 @@ describe('RateLimiter', () => {
     });
   });
 
+  describe('tryConsume (atomic check-and-record)', () => {
+    it('should not exceed the limit under many concurrent consumes (TOCTOU regression)', async () => {
+      const config: RateLimitConfig = {
+        maxRequests: 5,
+        windowSeconds: 60,
+        scope: 'global',
+      };
+
+      await rateLimiter.configure(config);
+
+      // Fire far more concurrent consumes than the limit allows. Because tryConsume
+      // checks-and-records atomically, exactly `maxRequests` must be allowed -- the
+      // rest must be denied. The old check-then-record pattern would let all pass.
+      const attempts = 50;
+      const results = await Promise.all(
+        Array.from({ length: attempts }, async () => rateLimiter.tryConsume())
+      );
+
+      const allowedCount = results.filter((r) => r.allowed).length;
+      const deniedCount = results.filter((r) => !r.allowed).length;
+
+      expect(allowedCount).toBe(5);
+      expect(deniedCount).toBe(attempts - 5);
+
+      // State reflects exactly the allowed consumes.
+      const status = await rateLimiter.getStatus();
+      expect(status.currentCount).toBe(5);
+      expect(status.allowed).toBe(false);
+    });
+
+    it('should consume a token only when allowed', async () => {
+      const config: RateLimitConfig = {
+        maxRequests: 2,
+        windowSeconds: 60,
+        scope: 'global',
+      };
+
+      await rateLimiter.configure(config);
+
+      const first = rateLimiter.tryConsume();
+      const second = rateLimiter.tryConsume();
+      expect(first.allowed).toBe(true);
+      expect(second.allowed).toBe(true);
+      expect(second.currentCount).toBe(2);
+
+      // Over the limit: denied, and no further tokens consumed.
+      const denied = rateLimiter.tryConsume();
+      expect(denied.allowed).toBe(false);
+      expect(denied.currentCount).toBe(2);
+      expect(denied.reason).toContain('Rate limit exceeded');
+
+      const status = await rateLimiter.getStatus();
+      expect(status.currentCount).toBe(2);
+    });
+
+    it('should isolate consumption per tenant', async () => {
+      const config: RateLimitConfig = {
+        maxRequests: 1,
+        windowSeconds: 60,
+        scope: 'tenant',
+      };
+
+      await rateLimiter.configure(config, 'tenant-A');
+      await rateLimiter.configure(config, 'tenant-B');
+
+      expect(rateLimiter.tryConsume('tenant-A').allowed).toBe(true);
+      expect(rateLimiter.tryConsume('tenant-A').allowed).toBe(false);
+      // tenant-B is unaffected by tenant-A's consumption.
+      expect(rateLimiter.tryConsume('tenant-B').allowed).toBe(true);
+    });
+  });
+
   describe('recordRequest', () => {
     it('should increment request count', async () => {
       const config: RateLimitConfig = {

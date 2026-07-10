@@ -22,6 +22,24 @@ import type { IPolicyManager } from '../../interfaces/IPolicyManager';
 import type { IResponseRedactor } from '../../interfaces/IResponseRedactor';
 import type { IRateLimiter } from '../../interfaces/IRateLimiter';
 
+// Resolve a canned response by request id. Handles both the plain original id
+// and the mediator's composite wire id format `tenant:session:originalId:uuid`.
+function resolveCannedResponse(
+  responses: Map<string | number, JSONRPCResponse>,
+  wireId: string | number
+): JSONRPCResponse | undefined {
+  const direct = responses.get(wireId);
+  if (direct) return direct;
+  if (typeof wireId === 'string' && wireId.includes(':')) {
+    const parts = wireId.split(':');
+    if (parts.length >= 4) {
+      const originalId = parts[parts.length - 2]!;
+      return responses.get(originalId) ?? responses.get(Number(originalId));
+    }
+  }
+  return undefined;
+}
+
 /**
  * Mock Transport for testing
  */
@@ -32,11 +50,12 @@ class MockTransport implements ITransport {
 
   async send(message: JSONRPCRequest | JSONRPCResponse): Promise<void> {
     if ('id' in message && message.id !== null && 'method' in message) {
-      const response = this.pendingResponses.get(message.id);
+      const response = resolveCannedResponse(this.pendingResponses, message.id);
       if (response && this.messageCallback) {
+        const echoed = { ...response, id: message.id } as JSONRPCResponse;
         setImmediate(async () => {
           if (this.messageCallback) {
-            await this.messageCallback(response);
+            await this.messageCallback(echoed);
           }
         });
       }
@@ -295,6 +314,9 @@ class MockRateLimiter implements IRateLimiter {
     return { allowed: true, remaining: 1000, resetAt: new Date() };
   }
 
+  tryConsume(_tenantId?: string, _toolName?: string): any {
+    return { allowed: true, currentCount: 0, maxRequests: 1000, resetInSeconds: 60 };
+  }
   async recordRequest(_tenantId: string, _toolName: string): Promise<void> {}
   async getStatus(_tenantId: string, _toolName?: string): Promise<any> {
     return { allowed: true, remaining: 1000, resetAt: new Date() };
@@ -358,7 +380,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const financeRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'FinanceDB',
           arguments: { query: 'SELECT * FROM employees WHERE id = 123' },
@@ -382,7 +404,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const leakRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 2,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'WebSearch',
           arguments: { q: 'User Alice earns $50,000 at Company X' },
@@ -420,7 +442,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const leakRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 3,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'Slack',
           arguments: { message: 'Employee ID: 12345 needs review' },
@@ -457,7 +479,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const leakRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 4,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'EmailSender',
           arguments: {
@@ -493,7 +515,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const safeRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 5,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'WebSearch',
           arguments: { q: 'What is the weather today?' },
@@ -541,7 +563,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const tenantARequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 6,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'WebSearch',
           arguments: { q: 'Secret-Data-B' },
@@ -650,8 +672,11 @@ describe('Shield Governance E2E Security Tests', () => {
 
       const tokens = ResponseScraper.scrape(response.result);
 
-      // Should be capped at MAX_TOKENS (200)
-      expect(tokens.length).toBeLessThanOrEqual(200);
+      // Should be capped at MAX_TOKENS. SECURITY FIX: cap raised from 200 to 1000 to
+      // close the "bury tainted data beyond the token cap" evasion, while still
+      // bounding memory. The cap is enforced (10,000 inputs -> at most MAX_TOKENS).
+      expect(tokens.length).toBeLessThanOrEqual(ResponseScraper.MAX_TOKENS);
+      expect(tokens.length).toBeLessThanOrEqual(1000);
     });
 
     it('should handle concurrent requests without race conditions', async () => {
@@ -675,7 +700,7 @@ describe('Shield Governance E2E Security Tests', () => {
         const req: JSONRPCRequest = {
           jsonrpc: '2.0',
           id: 100 + i,
-          method: 'callTool',
+          method: 'tools/call',
           params: {
             name: 'Tool',
             arguments: { value: 'Concurrent-Data' },
@@ -717,7 +742,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 200,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'LeakTool',
           arguments: { value: 'Audit-Data' },
@@ -770,7 +795,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 201,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'ToolB',
           arguments: { value: 'Origin-Data' },
@@ -831,7 +856,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 300,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'Tool',
           arguments: {},
@@ -868,7 +893,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const dbRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 400,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'Database',
           arguments: { query: 'SELECT * FROM users' },
@@ -887,7 +912,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const transformRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 401,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'Transform',
           arguments: { input: '123-45-6789' },
@@ -924,7 +949,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const leakRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 402,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'Email',
           arguments: { body: 'User SSN: SSN-123-45-6789' },
@@ -988,7 +1013,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 500,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'EmployeePortal',
           arguments: { query: 'getEmployee' },
@@ -1037,7 +1062,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const leakRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 600,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'Email',
           arguments: { body: 'Project PROJ 77 needs review' },
@@ -1119,7 +1144,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const tenantBRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 700,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'ToolB',
           arguments: { value: 'Secret' },
@@ -1208,7 +1233,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const request1: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 800,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'SafeTool1',
           arguments: { query: 'safe data' },
@@ -1218,7 +1243,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const request2: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 801,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'SafeTool2',
           arguments: { query: 'other safe data' },
@@ -1277,7 +1302,7 @@ describe('Shield Governance E2E Security Tests', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 900,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'SafeTool',
           arguments: { query: 'safe' },

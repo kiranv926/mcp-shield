@@ -20,9 +20,16 @@ import type { JSONRPCResponse, PolicyDecision } from '../types/common';
  * Default PII detection patterns
  */
 const DEFAULT_PII_PATTERNS: RegExp[] = [
-  // SSN: 123-45-6789
-  /\b\d{3}-\d{2}-\d{4}\b/g,
-  // Credit Card: 1234 5678 9012 3456 or 1234-5678-9012-3456
+  // SSN (separated): 123-45-6789, 123 45 6789, 123.45.6789
+  /\b\d{3}[-.\s]\d{2}[-.\s]\d{4}\b/g,
+  // SSN (contiguous / stored as a number): 123456789
+  // TRADEOFF: 9 contiguous digits also matches some other 9-digit ids. This is an
+  // intentional, documented over-scrub bias: for a REDACT decision we prefer to
+  // mask a benign 9-digit number rather than leak an SSN. 16-digit card numbers are
+  // NOT affected because there is no word boundary at digit 9 within them, and the
+  // credit-card pattern below runs first anyway.
+  /\b\d{9}\b/g,
+  // Credit Card: 1234 5678 9012 3456 or 1234-5678-9012-3456 or 1234567890123456
   /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g,
   // Email: user@example.com
   /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
@@ -103,6 +110,10 @@ export class ResponseRedactor implements IResponseRedactor {
         'api_key',
         'accessToken',
         'refreshToken',
+        'authorization',
+        'credential',
+        'privateKey',
+        'private_key',
         'ssn',
         'socialSecurityNumber',
         'creditCard',
@@ -199,9 +210,32 @@ export class ResponseRedactor implements IResponseRedactor {
     // Note: decision parameter is kept for interface compliance and potential future use
     // (e.g., schema-based field detection, per-decision configuration)
     void decision; // Suppress unused parameter warning
-    // If response has error, return as-is (don't sanitize errors)
+    // SECURITY FIX (error leak): Previously errors were returned unredacted, so
+    // secrets embedded in a JSON-RPC error message or error.data leaked. Sanitize
+    // the error message (pattern scrub) and error.data (field mask + pattern scrub).
     if (response.error) {
-      return response;
+      const err = response.error;
+      const sanitizedError: typeof err = {
+        ...err,
+        message:
+          typeof err.message === 'string'
+            ? this.scrubPatterns(err.message, this.config.scrubPatterns)
+            : err.message,
+      };
+
+      if (err.data !== undefined && err.data !== null) {
+        const maskedData = this.maskFields(err.data, this.config.maskFields);
+        sanitizedError.data = this.scrubPatternsRecursive(
+          maskedData,
+          this.config.scrubPatterns,
+          0
+        );
+      }
+
+      return {
+        ...response,
+        error: sanitizedError,
+      };
     }
 
     // If no result, return as-is
@@ -266,10 +300,11 @@ export class ResponseRedactor implements IResponseRedactor {
       const masked: Record<string, unknown> = {};
       const dataObj = data as Record<string, unknown>;
       for (const [key, value] of Object.entries(dataObj)) {
-        // Check if field should be masked (case-insensitive)
-        const shouldMask = fields.some(
-          field => key.toLowerCase() === field.toLowerCase()
-        );
+        // SECURITY FIX (mask bypass): Previously required exact case-insensitive
+        // equality, so "user_password" / "authToken" / "api_key" slipped through.
+        // Now match against the sensitive-field lexicon using camel/snake
+        // normalization + word-boundary/substring rules.
+        const shouldMask = this.isSensitiveFieldName(key, fields);
 
         if (shouldMask) {
           masked[key] = this.config.replacement;
@@ -282,6 +317,58 @@ export class ResponseRedactor implements IResponseRedactor {
 
     // Primitive values: return as-is
     return data;
+  }
+
+  /**
+   * Determine whether a field name is sensitive and should be masked (Tier 1).
+   *
+   * SECURITY FIX (mask bypass): Uses camelCase/snake_case normalization plus a
+   * word-boundary + substring rule against the sensitive-field lexicon:
+   *  - Whole-word (token) match: catches short, ambiguous terms like "pin", "ssn",
+   *    "cvv" exactly (so "shipping" or "spinner" are NOT masked by "pin").
+   *  - Substring match for terms of length >= 5: catches "user_password"
+   *    (-> "userpassword" contains "password"), "authToken" (token "token"),
+   *    "api_key" (-> "apikey" contains "apikey"), etc.
+   *
+   * @param key - Object field name to test
+   * @param fields - Sensitive-field lexicon (the configured / passed mask fields)
+   */
+  private isSensitiveFieldName(key: string, fields: string[]): boolean {
+    const keyTokens = this.normalizeFieldTokens(key);
+    const keyCompact = key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+    for (const field of fields) {
+      const fieldCompact = field.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      if (fieldCompact.length === 0) {
+        continue;
+      }
+
+      // Whole-word / token match (handles short ambiguous terms safely).
+      if (keyTokens.includes(fieldCompact)) {
+        return true;
+      }
+
+      // Substring match only for longer, unambiguous lexicon terms.
+      if (fieldCompact.length >= 5 && keyCompact.includes(fieldCompact)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Split a field name into normalized lowercase tokens across camelCase and
+   * snake/kebab boundaries. e.g. "user_password" -> ["user","password"],
+   * "authToken" -> ["auth","token"], "APIKey" -> ["api","key"].
+   */
+  private normalizeFieldTokens(key: string): string[] {
+    return key
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map(t => t.toLowerCase());
   }
 
   /**
@@ -338,6 +425,17 @@ export class ResponseRedactor implements IResponseRedactor {
     // Handle strings
     if (typeof data === 'string') {
       return this.scrubPatterns(data, patterns);
+    }
+
+    // SECURITY FIX (numeric PII leak): Pattern scrubbing previously only ran on
+    // strings, so PII stored as a JSON number (SSN / credit card as a number) was
+    // never scrubbed. Convert numeric leaves to string, test the PII patterns, and
+    // mask if any pattern matches. Non-PII numbers are returned unchanged.
+    if (typeof data === 'number' && Number.isFinite(data)) {
+      const asString = String(data);
+      const scrubbed = this.applyPatterns(asString, patterns);
+      // If a pattern matched, applyPatterns replaced it with the mask string.
+      return scrubbed !== asString ? scrubbed : data;
     }
 
     // Handle arrays

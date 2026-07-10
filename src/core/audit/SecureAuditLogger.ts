@@ -18,12 +18,51 @@
  * @see SECURITY.md - Audit Integrity
  */
 
-import { createHash, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { AuditLogEntry, SystemErrorAuditEntry } from '../../interfaces/IAuditLogger';
 import type { SecureAuditEntry } from '../../types/audit';
 import { createRiskScore } from '../../types/common';
 import { AuditLogger } from './AuditLogger';
 import { promises as fs } from 'fs';
+
+/**
+ * Signature construction version tag.
+ *
+ * `v2` denotes a real HMAC-SHA256 over the canonical payload (replacing the
+ * earlier `v1` tag which mislabelled a plain SHA-256 of key‖data as an HMAC).
+ * Format of a signature string: `v2:hmac-sha256:<keyId>:<hex-mac>`.
+ */
+const SIGNATURE_VERSION = 'v2';
+
+/**
+ * Reason codes explaining why integrity verification failed.
+ */
+export type IntegrityFailureReason =
+  | 'CHAIN_BROKEN'
+  | 'SIGNATURE_MISSING'
+  | 'SIGNATURE_MISMATCH';
+
+/**
+ * Structured result of {@link SecureAuditLogger.verifyIntegrity}.
+ *
+ * Verification passes only when BOTH the HMAC signature of every entry is
+ * valid AND the hash-chain linkage is intact. On failure, the offending
+ * entry is identified.
+ */
+export interface IntegrityVerificationResult {
+  /** True only if every entry passed both signature and chain checks. */
+  valid: boolean;
+  /** Number of entries that were verified (or attempted). */
+  entryCount: number;
+  /** Index of the first failing entry, if any. */
+  failedIndex?: number;
+  /** Request ID of the first failing entry, if any. */
+  failedRequestId?: string;
+  /** Machine-readable reason for the failure, if any. */
+  reason?: IntegrityFailureReason;
+  /** Human-readable description of the failure, if any. */
+  message?: string;
+}
 
 /**
  * Genesis hash constant for the first entry in the chain
@@ -67,30 +106,47 @@ export class SecureAuditLogger extends AuditLogger {
   private signingKey: Buffer;
 
   /**
-   * Secure log cache (stores SecureAuditEntry format)
+   * Key identifier (fingerprint) embedded in each signature.
+   *
+   * A short, non-secret fingerprint of the signing key. It lets a verifier
+   * detect that a signature was produced with a different key (key rotation /
+   * wrong key) without revealing the key material itself.
+   */
+  private keyId: string;
+
+  /**
+   * Secure log cache (stores SecureAuditEntry format).
+   *
+   * Bounded via the inherited {@link maxCacheEntries} (ring-buffer behavior).
+   * Trimming this cache never affects the persisted chain: the rolling
+   * {@link lastHash} is retained independently of the cache contents.
    */
   private secureLogCache: SecureAuditEntry[] = [];
 
   /**
    * Constructor
-   * 
+   *
    * @param options - Configuration options
    */
   constructor(options: {
     logDirectory?: string;
     signingKey?: string | Buffer;
+    maxCacheEntries?: number;
   } = {}) {
     super(options);
-    
+
     // Initialize signing key
     if (options.signingKey) {
-      this.signingKey = Buffer.isBuffer(options.signingKey) 
-        ? options.signingKey 
+      this.signingKey = Buffer.isBuffer(options.signingKey)
+        ? options.signingKey
         : Buffer.from(options.signingKey, 'hex');
     } else {
       // Generate a random key for development (NOT for production)
       this.signingKey = randomBytes(32);
     }
+
+    // Derive a stable, non-secret key fingerprint for signature attribution.
+    this.keyId = createHash('sha256').update(this.signingKey).digest('hex').slice(0, 16);
   }
 
   /**
@@ -145,18 +201,87 @@ export class SecureAuditLogger extends AuditLogger {
   }
 
   /**
-   * Generate HMAC-SHA256 signature
-   * 
-   * @param data - Data to sign
-   * @returns Versioned signature string (v1:hmac-sha256:<hex>)
+   * Build the canonical, hash/signature-covered payload for an entry.
+   *
+   * This is the SINGLE canonical form used for BOTH chaining and verification.
+   * It deliberately EXCLUDES the volatile `sig` and `prevSig` fields so that
+   * the same bytes are produced when an entry is created, when the chain hash
+   * is advanced, and when integrity is later verified. (Previously
+   * logSystemError canonicalized the whole entry including prevSig/sig, which
+   * broke verification of every subsequent entry.)
+   *
+   * @param entry - A secure entry (or entry payload) to canonicalize
+   * @returns Canonical JSON string over the stable fields only
    */
-  private generateSignature(data: string): string {
-    const hmac = createHash('sha256')
-      .update(this.signingKey)
-      .update(data)
+  private canonicalPayload(
+    entry: Omit<SecureAuditEntry, 'sig' | 'prevSig'> | SecureAuditEntry
+  ): string {
+    const payload: Omit<SecureAuditEntry, 'sig' | 'prevSig'> = {
+      v: entry.v,
+      ts: entry.ts,
+      rid: entry.rid,
+      tid: entry.tid,
+      sid: entry.sid,
+      sub: entry.sub,
+      decision: entry.decision,
+      prov: entry.prov,
+    };
+    return this.canonicalize(payload);
+  }
+
+  /**
+   * Compute the chain hash for an entry: H(canonicalPayload ‖ prevHash).
+   *
+   * @param canonicalPayload - Canonical payload string (excludes sig/prevSig)
+   * @param prevHash - Previous entry's chain hash
+   * @returns Hex-encoded chain hash
+   */
+  private computeChainHash(canonicalPayload: string, prevHash: string): string {
+    return this.calculateHash(`${canonicalPayload}${prevHash}`);
+  }
+
+  /**
+   * Generate a REAL HMAC-SHA256 signature over the canonical payload and its
+   * chain hash.
+   *
+   * Uses `crypto.createHmac('sha256', key)` — a proper keyed MAC that is NOT
+   * length-extension vulnerable (unlike the previous `H(key‖data)`
+   * construction that was mislabelled as an HMAC). The chain hash is bound
+   * into the signed input so a signature also attests to the entry's position
+   * in the chain.
+   *
+   * @param canonicalPayload - Canonical payload string (excludes sig/prevSig)
+   * @param chainHash - The entry's chain hash
+   * @returns Versioned signature string: `v2:hmac-sha256:<keyId>:<hex-mac>`
+   */
+  private generateSignature(canonicalPayload: string, chainHash: string): string {
+    const mac = createHmac('sha256', this.signingKey)
+      .update(canonicalPayload)
+      .update('|')
+      .update(chainHash)
       .digest('hex');
-    
-    return `v1:hmac-sha256:${hmac}`;
+
+    return `${SIGNATURE_VERSION}:hmac-sha256:${this.keyId}:${mac}`;
+  }
+
+  /**
+   * Constant-time comparison of two signature strings.
+   *
+   * Length is not secret, so an early length check is acceptable; the MAC
+   * bytes themselves are compared with `timingSafeEqual` to avoid leaking
+   * information via timing.
+   *
+   * @param a - First signature string
+   * @param b - Second signature string
+   * @returns true if the signatures are byte-for-byte equal
+   */
+  private signaturesEqual(a: string, b: string): boolean {
+    const bufA = Buffer.from(a, 'utf8');
+    const bufB = Buffer.from(b, 'utf8');
+    if (bufA.length !== bufB.length) {
+      return false;
+    }
+    return timingSafeEqual(bufA, bufB);
   }
 
   /**
@@ -207,20 +332,14 @@ export class SecureAuditLogger extends AuditLogger {
       } : undefined,
     };
 
-    // Canonicalize the payload for deterministic hashing
-    const canonicalPayload = this.canonicalize(entryPayload);
-    
-    // Calculate hash: H(canonicalPayload + prevHash)
-    const hashInput = `${canonicalPayload}${prevHash}`;
-    const currentHash = this.calculateHash(hashInput);
+    // Canonicalize the payload for deterministic hashing (excludes sig/prevSig).
+    const canonicalPayload = this.canonicalPayload(entryPayload);
 
-    // Generate signature for the complete entry (including hash)
-    const signaturePayload = {
-      ...entryPayload,
-      hash: currentHash,
-    };
-    const canonicalSignature = this.canonicalize(signaturePayload);
-    const signature = this.generateSignature(canonicalSignature);
+    // Calculate chain hash: H(canonicalPayload + prevHash)
+    const currentHash = this.computeChainHash(canonicalPayload, prevHash);
+
+    // Generate a real HMAC signature bound to the payload and chain hash.
+    const signature = this.generateSignature(canonicalPayload, currentHash);
 
     return {
       ...entryPayload,
@@ -248,31 +367,22 @@ export class SecureAuditLogger extends AuditLogger {
       // Create secure entry with hash chain
       const secureEntry = await this.createSecureEntry(entry, this.lastHash);
 
-      // Calculate current hash for next entry
-      // Hash includes the entry payload (without sig/prevSig) + previous hash
-      const entryPayload: Omit<SecureAuditEntry, 'sig' | 'prevSig'> = {
-        v: secureEntry.v,
-        ts: secureEntry.ts,
-        rid: secureEntry.rid,
-        tid: secureEntry.tid,
-        sid: secureEntry.sid,
-        sub: secureEntry.sub,
-        decision: secureEntry.decision,
-        prov: secureEntry.prov,
-      };
-      const entryHash = this.calculateHash(
-        `${this.canonicalize(entryPayload)}${this.lastHash}`
+      // Advance the chain using the SAME canonical form used for signing and
+      // verification (excludes sig/prevSig).
+      const entryHash = this.computeChainHash(
+        this.canonicalPayload(secureEntry),
+        this.lastHash
       );
 
       // Persist to file (append-only)
       const logLine = JSON.stringify(secureEntry) + '\n';
       await fs.appendFile(this.logFilePath, logLine, 'utf-8');
 
-      // Update secure cache
+      // Update caches (bounded ring-buffer; does not affect the chain state)
       this.secureLogCache.push(secureEntry);
-
-      // Also update base cache for queryLogs compatibility
       this.logCache.push(entry);
+      this.enforceSecureCacheBound();
+      this.enforceCacheBound();
 
       // Update lastHash pointer (CRITICAL: Only after successful write)
       this.lastHash = entryHash;
@@ -296,8 +406,8 @@ export class SecureAuditLogger extends AuditLogger {
       const logDir = this.logFilePath.substring(0, this.logFilePath.lastIndexOf('/'));
       await this.ensureLogDirectory(logDir);
 
-      // Convert system error to secure entry format
-      const secureEntry: SecureAuditEntry = {
+      // Build the stable entry payload (excludes sig/prevSig).
+      const entryPayload: Omit<SecureAuditEntry, 'sig' | 'prevSig'> = {
         v: '1.1',
         ts: typeof entry.timestamp === 'number' ? entry.timestamp : new Date(entry.timestamp).getTime(),
         rid: entry.requestId || 'system-error',
@@ -321,22 +431,30 @@ export class SecureAuditLogger extends AuditLogger {
           sensitivity: 1.0,
           secrets: false,
         },
-        prevSig: this.lastHash === GENESIS_HASH ? undefined : this.lastHash,
-        sig: undefined, // System errors may not be signed (optional)
       };
 
-      // Calculate hash
-      const canonicalPayload = this.canonicalize(secureEntry);
-      const hashInput = `${canonicalPayload}${this.lastHash}`;
-      const currentHash = this.calculateHash(hashInput);
+      // Calculate chain hash using the SAME canonical form as logDecision and
+      // verifyIntegrity (excludes sig/prevSig). Previously this canonicalized
+      // the whole entry (including prevSig), which desynchronized the chain and
+      // broke verification of every subsequent entry.
+      const canonicalPayload = this.canonicalPayload(entryPayload);
+      const currentHash = this.computeChainHash(canonicalPayload, this.lastHash);
+
+      // Sign system-error entries too, so verifyIntegrity can check every entry
+      // uniformly.
+      const secureEntry: SecureAuditEntry = {
+        ...entryPayload,
+        sig: this.generateSignature(canonicalPayload, currentHash),
+        prevSig: this.lastHash === GENESIS_HASH ? undefined : this.lastHash,
+      };
 
       // Persist
       const logLine = JSON.stringify(secureEntry) + '\n';
       await fs.appendFile(this.logFilePath, logLine, 'utf-8');
 
-      // Update caches
+      // Update caches (bounded)
       this.secureLogCache.push(secureEntry);
-      
+
       // Convert to standard format for base cache
       const auditEntry: AuditLogEntry = {
         requestId: entry.requestId,
@@ -369,6 +487,8 @@ export class SecureAuditLogger extends AuditLogger {
         },
       };
       this.logCache.push(auditEntry);
+      this.enforceSecureCacheBound();
+      this.enforceCacheBound();
 
       // Update lastHash
       this.lastHash = currentHash;
@@ -449,22 +569,30 @@ export class SecureAuditLogger extends AuditLogger {
   }
 
   /**
-   * Verify hash chain integrity
-   * 
-   * Traverses a list of log entries and validates that each entry's prevHash
-   * matches the previous entry's hash, ensuring the chain is unbroken.
-   * 
-   * The verification process:
-   * 1. For each entry, calculate its hash using the previous entry's hash
-   * 2. Verify that entry.prevSig matches the previous entry's calculated hash
-   * 3. If any entry is tampered, its hash will change, breaking the chain
-   * 
-   * @param logs - Array of secure audit entries to verify
-   * @returns true if chain is valid, false if tampering detected
+   * Verify audit-trail integrity (signatures AND hash chain).
+   *
+   * Verification fails if EITHER check fails for any entry:
+   *
+   * 1. HMAC signature: the stored `sig` is recomputed with the signing key and
+   *    compared in constant time (`crypto.timingSafeEqual`). This is the check
+   *    that makes forgery hard: previously the signature was never verified, so
+   *    anyone able to rewrite the log could recompute the plaintext hash chain
+   *    and forge a "valid" trail.
+   * 2. Hash-chain linkage: each entry's `prevSig` must equal the previous
+   *    entry's recomputed chain hash, so deleting or reordering entries is
+   *    detected.
+   *
+   * The `logs` argument is verified independently of the in-memory cache, so a
+   * bounded/trimmed cache does not affect verification of the persisted logs
+   * (pass the full set read back from disk).
+   *
+   * @param logs - Array of secure audit entries to verify (chain order)
+   * @returns Structured result indicating validity and, on failure, which
+   *          entry failed and why
    */
-  async verifyIntegrity(logs: SecureAuditEntry[]): Promise<boolean> {
+  async verifyIntegrity(logs: SecureAuditEntry[]): Promise<IntegrityVerificationResult> {
     if (logs.length === 0) {
-      return true; // Empty chain is valid
+      return { valid: true, entryCount: 0 }; // Empty chain is valid
     }
 
     // Start with genesis hash
@@ -474,35 +602,51 @@ export class SecureAuditLogger extends AuditLogger {
       const entry = logs[i];
       if (!entry) continue;
 
-      // Verify prevSig matches the previous entry's hash
+      // (b) Verify chain linkage: prevSig must reference the previous hash.
       if (entry.prevSig !== undefined && entry.prevSig !== previousHash) {
-        // Chain broken: prevSig doesn't match previous hash
-        return false;
+        return {
+          valid: false,
+          entryCount: logs.length,
+          failedIndex: i,
+          failedRequestId: entry.rid,
+          reason: 'CHAIN_BROKEN',
+          message: `Entry ${i} (rid=${entry.rid}) prevSig does not match the previous entry's hash (broken/reordered/deleted chain).`,
+        };
       }
 
-      // Calculate this entry's hash (what the next entry should reference)
-      // This is the same calculation used in logDecision
-      const entryPayload: Omit<SecureAuditEntry, 'sig' | 'prevSig'> = {
-        v: entry.v,
-        ts: entry.ts,
-        rid: entry.rid,
-        tid: entry.tid,
-        sid: entry.sid,
-        sub: entry.sub,
-        decision: entry.decision,
-        prov: entry.prov,
-      };
+      // Recompute this entry's canonical payload and chain hash.
+      const canonicalPayload = this.canonicalPayload(entry);
+      const currentHash = this.computeChainHash(canonicalPayload, previousHash);
 
-      const canonicalPayload = this.canonicalize(entryPayload);
-      const hashInput = `${canonicalPayload}${previousHash}`;
-      const currentHash = this.calculateHash(hashInput);
+      // (a) Verify the HMAC signature (constant-time compare).
+      if (entry.sig === undefined) {
+        return {
+          valid: false,
+          entryCount: logs.length,
+          failedIndex: i,
+          failedRequestId: entry.rid,
+          reason: 'SIGNATURE_MISSING',
+          message: `Entry ${i} (rid=${entry.rid}) has no signature.`,
+        };
+      }
 
-      // Update previousHash for next iteration
-      // This becomes the expected prevSig for the next entry
+      const expectedSig = this.generateSignature(canonicalPayload, currentHash);
+      if (!this.signaturesEqual(entry.sig, expectedSig)) {
+        return {
+          valid: false,
+          entryCount: logs.length,
+          failedIndex: i,
+          failedRequestId: entry.rid,
+          reason: 'SIGNATURE_MISMATCH',
+          message: `Entry ${i} (rid=${entry.rid}) signature is invalid (tampered payload or wrong key).`,
+        };
+      }
+
+      // Advance chain: this hash becomes the expected prevSig of the next entry.
       previousHash = currentHash;
     }
 
-    return true; // Chain is valid
+    return { valid: true, entryCount: logs.length }; // Chain is valid
   }
 
   /**
@@ -527,11 +671,27 @@ export class SecureAuditLogger extends AuditLogger {
 
   /**
    * Get secure log cache (for testing/debugging)
-   * 
+   *
    * @returns Array of secure audit entries
    */
   getSecureLogs(): SecureAuditEntry[] {
     return [...this.secureLogCache];
+  }
+
+  /**
+   * Enforce the bounded (ring-buffer) size of the secure in-memory cache.
+   *
+   * Drops the oldest secure entries once the cache exceeds
+   * {@link maxCacheEntries}. This is purely an in-memory concern: the rolling
+   * {@link lastHash} chain state and the persisted append-only log file are
+   * unaffected, so trimming cannot corrupt chain verification of persisted
+   * logs.
+   */
+  private enforceSecureCacheBound(): void {
+    const overflow = this.secureLogCache.length - this.maxCacheEntries;
+    if (overflow > 0) {
+      this.secureLogCache.splice(0, overflow);
+    }
   }
 }
 

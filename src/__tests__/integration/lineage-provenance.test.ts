@@ -20,6 +20,24 @@ import { SensitivityLevel } from '../../types/mcp-hints';
 import { createRiskScore } from '../../types/common';
 import { randomUUID } from 'crypto';
 
+// Resolve a canned response by request id. Handles both the plain original id
+// and the mediator's composite wire id format `tenant:session:originalId:uuid`.
+function resolveCannedResponse(
+  responses: Map<string | number, JSONRPCResponse>,
+  wireId: string | number
+): JSONRPCResponse | undefined {
+  const direct = responses.get(wireId);
+  if (direct) return direct;
+  if (typeof wireId === 'string' && wireId.includes(':')) {
+    const parts = wireId.split(':');
+    if (parts.length >= 4) {
+      const originalId = parts[parts.length - 2]!;
+      return responses.get(originalId) ?? responses.get(Number(originalId));
+    }
+  }
+  return undefined;
+}
+
 /**
  * Mock implementations for testing
  */
@@ -28,11 +46,13 @@ class MockTransport implements ITransport {
   private pendingResponses = new Map<string | number, JSONRPCResponse>();
 
   async send(message: JSONRPCRequest | JSONRPCResponse): Promise<void> {
-    // Simulate async response
+    // Simulate async response. Echo the received (possibly composite) wire id,
+    // resolving the canned response by original id like a real MCP server.
     if ('id' in message && message.id !== null) {
-      const response = this.pendingResponses.get(message.id);
+      const response = resolveCannedResponse(this.pendingResponses, message.id);
       if (response && this.messageHandler) {
-        setTimeout(() => this.messageHandler!(response), 10);
+        const echoed = { ...response, id: message.id } as JSONRPCResponse;
+        setTimeout(() => this.messageHandler!(echoed), 10);
       }
     }
   }
@@ -275,8 +295,11 @@ class MockAuditLogger implements IAuditLogger {
 }
 
 class MockRateLimiter implements IRateLimiter {
-  async checkLimit(tenantId: string, toolName: string): Promise<boolean> {
-    return true;
+  async checkLimit(tenantId: string, toolName: string): Promise<any> {
+    return { allowed: true, currentCount: 0, maxRequests: 100, resetInSeconds: 60 };
+  }
+  tryConsume(_tenantId?: string, _toolName?: string): any {
+    return { allowed: true, currentCount: 0, maxRequests: 100, resetInSeconds: 60 };
   }
   async recordRequest(tenantId: string, toolName: string): Promise<void> {}
   async getStatus(tenantId: string): Promise<any> { return {}; }

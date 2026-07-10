@@ -28,6 +28,24 @@ import type { IResponseRedactor } from '../../interfaces/IResponseRedactor';
 import type { IAuditLogger } from '../../interfaces/IAuditLogger';
 import type { ITransport } from '../../interfaces/ITransport';
 
+// Resolve a canned response by request id. Handles both the plain original id
+// and the mediator's composite wire id format `tenant:session:originalId:uuid`.
+function resolveCannedResponse(
+  responses: Map<string | number, JSONRPCResponse>,
+  wireId: string | number
+): JSONRPCResponse | undefined {
+  const direct = responses.get(wireId);
+  if (direct) return direct;
+  if (typeof wireId === 'string' && wireId.includes(':')) {
+    const parts = wireId.split(':');
+    if (parts.length >= 4) {
+      const originalId = parts[parts.length - 2]!;
+      return responses.get(originalId) ?? responses.get(Number(originalId));
+    }
+  }
+  return undefined;
+}
+
 // Mock implementations
 class MockRiskEvaluator implements IRiskEvaluator {
   async evaluatePolicy(context: any): Promise<PolicyDecision> {
@@ -167,6 +185,14 @@ class MockRateLimiter implements IRateLimiter {
       resetInSeconds: 60,
     };
   }
+  tryConsume(_tenantId?: string, _toolName?: string): any {
+    return {
+      allowed: true,
+      currentCount: 0,
+      maxRequests: 100,
+      resetInSeconds: 60,
+    };
+  }
   async recordRequest(_tenantId?: string, _toolName?: string): Promise<void> {}
   async getStatus(_tenantId?: string, _toolName?: string): Promise<any> {
     return {
@@ -204,14 +230,18 @@ class MockTransport implements ITransport {
   private pendingResponses = new Map<string | number, JSONRPCResponse>();
 
   async send(message: JSONRPCRequest | JSONRPCResponse): Promise<void> {
-    // If this is a request with an ID, check if we have a pending response
+    // If this is a request with an ID, check if we have a pending response.
+    // A real MCP server echoes back the exact id it received; the mediator now
+    // forwards with a composite wire id (tenant:session:originalId:uuid), so we
+    // resolve the canned response by original id and echo the received wire id.
     if ('id' in message && message.id !== null && 'method' in message) {
-      const response = this.pendingResponses.get(message.id);
+      const response = resolveCannedResponse(this.pendingResponses, message.id);
       if (response && this.messageCallback) {
+        const echoed = { ...response, id: message.id } as JSONRPCResponse;
         // Simulate async response (use setImmediate for better async handling)
         setImmediate(async () => {
           if (this.messageCallback) {
-            await this.messageCallback(response);
+            await this.messageCallback(echoed);
           }
         });
       }
@@ -304,7 +334,7 @@ describe('Data Laundering Prevention Integration', () => {
       const toolBRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 2,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'emailTool',
           args: {
@@ -375,7 +405,7 @@ describe('Data Laundering Prevention Integration', () => {
       const toolBRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 2,
-        method: 'callTool',
+        method: 'tools/call',
         params: {
           name: 'otherTool',
           args: { value: 'different-data' },

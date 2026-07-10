@@ -248,7 +248,7 @@ export interface SecureAuditEntry {
    * HMAC-SHA256 signature for immutability
    * 
    * Computed over canonicalized entry (excluding this field and prevSig).
-   * Format: `v1:hmac-sha256:<hex-signature>` (supports key versioning)
+   * Format: `v2:hmac-sha256:<keyId>:<hex-signature>` (real HMAC, key-versioned)
    */
   sig?: string;
   
@@ -385,12 +385,12 @@ export function detectDataTypePattern(value: string): DataTypePattern | null {
   }
   
   // Phone number (various formats)
-  if (/^[\d\s\-\(\)\+]{10,}$/.test(value.replace(/\s/g, ''))) {
+  if (/^[\d\s\-()+]{10,}$/.test(value.replace(/\s/g, ''))) {
     return DataTypePattern.PHONE;
   }
   
   // Credit card (Luhn algorithm check would be ideal, but regex for now)
-  if (/^\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}$/.test(value)) {
+  if (/^\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}$/.test(value)) {
     return DataTypePattern.CREDIT_CARD;
   }
   

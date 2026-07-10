@@ -204,6 +204,15 @@ class MockRateLimiter implements IRateLimiter {
     };
   }
 
+  tryConsume(_tenantId?: string, _toolName?: string): any {
+    return {
+      allowed: true,
+      currentCount: 1,
+      maxRequests: 100,
+      resetInSeconds: 60,
+    };
+  }
+
   async recordRequest(_tenantId?: string, _toolName?: string): Promise<void> {
     // Mock implementation
   }
@@ -223,10 +232,6 @@ class MockRateLimiter implements IRateLimiter {
 
   async configure(_config: any, _tenantId?: string, _toolName?: string): Promise<void> {
     // Mock implementation
-  }
-
-  async healthCheck(): Promise<boolean> {
-    return true;
   }
 
   async healthCheck(): Promise<boolean> {
@@ -366,7 +371,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -399,12 +404,12 @@ describe('ShieldMediator', () => {
   });
 
   describe('extractToolName()', () => {
-    it('should extract tool name from callTool request', () => {
+    it('should extract tool name from tools/call request', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
-        params: { name: 'testTool', args: {} },
+        method: 'tools/call',
+        params: { name: 'testTool', arguments: {} },
       };
 
       const result = mediator.validateRequest(request);
@@ -412,16 +417,16 @@ describe('ShieldMediator', () => {
       // Tool name extraction is tested via intercept()
     });
 
-    it('should return undefined for non-callTool methods', () => {
+    it('should return undefined for non-tools/call methods', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'listTools',
+        method: 'tools/list',
       };
 
       const result = mediator.validateRequest(request);
       expect(result.valid).toBe(true);
-      // Tool name should be undefined for listTools
+      // Tool name should be undefined for tools/list
     });
   });
 
@@ -446,7 +451,8 @@ describe('ShieldMediator', () => {
     });
 
     it('should block request when rate limit exceeded', async () => {
-      mockRateLimiter.checkLimit = jest.fn().mockResolvedValue({
+      // The mediator now enforces via the atomic tryConsume() at the rate-limit step.
+      mockRateLimiter.tryConsume = jest.fn().mockReturnValue({
         allowed: false,
         currentCount: 101,
         maxRequests: 100,
@@ -457,7 +463,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -498,7 +504,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -568,7 +574,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -607,7 +613,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -640,7 +646,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -671,7 +677,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 123,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -752,7 +758,7 @@ describe('ShieldMediator', () => {
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
-        method: 'callTool',
+        method: 'tools/call',
         params: { name: 'testTool' },
       };
 
@@ -777,6 +783,77 @@ describe('ShieldMediator', () => {
       // This is tested implicitly through forwardRequest
       // The actual key generation is internal to forwardRequest
       expect(context1.sessionId).not.toBe(context2.sessionId);
+    });
+  });
+
+  describe('Cross-Tenant Response Isolation (regression)', () => {
+    beforeEach(() => {
+      mediator.start();
+    });
+
+    it('should NOT cross-deliver responses between two tenants using identical request ids', async () => {
+      // Capture the wire ids the mediator stamps onto outbound requests so the
+      // test can echo them back like a real server would.
+      const sentWireIds: Array<string | number | null> = [];
+      mockServerTransport.send = jest.fn().mockImplementation(async (msg: JSONRPCRequest) => {
+        sentWireIds.push(msg.id);
+      });
+
+      // Two DIFFERENT tenants, both using JSON-RPC id === 1.
+      const requestA: JSONRPCRequest = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'testTool' },
+      };
+      const requestB: JSONRPCRequest = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'testTool' },
+      };
+
+      const ctxA: RequestContext = {
+        sessionId: 'session-A',
+        tenantId: 'tenant-A',
+        toolName: 'testTool',
+        timestamp: new Date(),
+      };
+      const ctxB: RequestContext = {
+        sessionId: 'session-B',
+        tenantId: 'tenant-B',
+        toolName: 'testTool',
+        timestamp: new Date(),
+      };
+
+      const pA = mediator.forwardRequest(requestA, ctxA);
+      const pB = mediator.forwardRequest(requestB, ctxB);
+
+      // Both requests were sent with DISTINCT, globally-unique wire ids even though
+      // their client-facing JSON-RPC id is identical (1).
+      expect(sentWireIds).toHaveLength(2);
+      expect(sentWireIds[0]).not.toBe(sentWireIds[1]);
+
+      // Respond out of order: tenant-B's response first, then tenant-A's.
+      await mockServerTransport.simulateMessage({
+        jsonrpc: '2.0',
+        id: sentWireIds[1]!,
+        result: { who: 'B' },
+      });
+      await mockServerTransport.simulateMessage({
+        jsonrpc: '2.0',
+        id: sentWireIds[0]!,
+        result: { who: 'A' },
+      });
+
+      const [respA, respB] = await Promise.all([pA, pB]);
+
+      // Each tenant receives ITS OWN response (no cross-over), and the original
+      // client-facing id (1) is restored on the way back.
+      expect((respA.result as any).who).toBe('A');
+      expect((respB.result as any).who).toBe('B');
+      expect(respA.id).toBe(1);
+      expect(respB.id).toBe(1);
     });
   });
 

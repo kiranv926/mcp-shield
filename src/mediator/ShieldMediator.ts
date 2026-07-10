@@ -36,6 +36,26 @@ import type { IResponseRedactor } from '../interfaces/IResponseRedactor';
 import type { IAuditLogger } from '../interfaces/IAuditLogger';
 import type { ITransport } from '../interfaces/ITransport';
 import { ResponseScraper } from '../core/ResponseScraper';
+import { SensitivityLevel } from '../types/mcp-hints';
+
+/**
+ * Standard MCP JSON-RPC method names.
+ *
+ * These are the canonical method strings defined by the MCP specification.
+ * Centralizing them in one constant block prevents string-literal drift such as
+ * the legacy 'callTool'/'listTools' names, which silently no-op governance
+ * (tool-name extraction, taint lineage, taint registration) on real MCP traffic.
+ *
+ * MCP `tools/call` request shape: { method: 'tools/call', params: { name, arguments } }
+ *
+ * @see https://spec.modelcontextprotocol.io - tools/call, tools/list
+ */
+export const MCP_METHODS = {
+  /** Tool invocation. params = { name, arguments } */
+  TOOLS_CALL: 'tools/call',
+  /** Tool listing. */
+  TOOLS_LIST: 'tools/list',
+} as const;
 
 /**
  * ShieldMediator Configuration
@@ -140,6 +160,14 @@ interface PendingRequest {
   requestId: string;
   tenantId?: string;
   sessionId: string;
+  /**
+   * The ORIGINAL JSON-RPC id supplied by the client.
+   *
+   * Outbound requests are sent to the server with a globally-unique wire id
+   * (the composite key) so responses can be correlated without cross-tenant
+   * collisions. This field lets us restore the client's original id on the way back.
+   */
+  originalId: string | number;
 }
 
 /**
@@ -158,9 +186,6 @@ export class ShieldMediator implements IMediator {
   private readonly rateLimiter: IRateLimiter;
   private readonly responseRedactor: IResponseRedactor;
   private readonly auditLogger: IAuditLogger;
-  // Client transport reserved for future bidirectional communication (Phase 2)
-  // @ts-expect-error - Reserved for Phase 2: bidirectional communication
-  private readonly clientTransport: ITransport;
   private readonly serverTransport: ITransport;
   private readonly evaluationTimeout: number;
   private readonly taintTimeout: number;
@@ -186,8 +211,8 @@ export class ShieldMediator implements IMediator {
     this.rateLimiter = config.rateLimiter;
     this.responseRedactor = config.responseRedactor;
     this.auditLogger = config.auditLogger;
-    // Client transport reserved for future bidirectional communication (Phase 2)
-    this.clientTransport = config.clientTransport;
+    // Note: config.clientTransport is accepted for API compatibility but not retained;
+    // the mediator only drives the server transport in the current request/response flow.
     this.serverTransport = config.serverTransport;
     this.evaluationTimeout = config.evaluationTimeout ?? 2000;
     this.taintTimeout = config.taintTimeout ?? 1000;
@@ -215,54 +240,50 @@ export class ShieldMediator implements IMediator {
       throw new Error('ShieldMediator is already started');
     }
 
-    // Register single permanent listener for server transport responses
-    // This dispatcher routes responses to pending promises using composite key correlation
+    // Register single permanent listener for server transport responses.
+    //
+    // Responses are correlated by the WIRE ID that forwardRequest() stamped on the
+    // outbound request. The wire id IS the composite key (tenantId:sessionId:requestId:uuid),
+    // so lookup is an O(1) exact match that CANNOT cross tenant/session boundaries.
+    //
+    // SECURITY: The previous implementation searched every pending request by JSON-RPC
+    // id alone, ignoring tenant/session. Two tenants that both used id=1 could receive
+    // each other's responses (cross-tenant data leak). Keying on the composite wire id
+    // eliminates that entire class of mis-routing.
     this.serverTransport.onMessage(async (message: JSONRPCRequest | JSONRPCResponse) => {
       // Only handle responses (have result or error, not method)
-      if ('result' in message || 'error' in message) {
-        // Extract request ID for correlation
-        const requestId = message.id;
-        
-        if (requestId !== null && requestId !== undefined) {
-          // Try to find pending request using composite key
-          // Since we don't have tenantId/sessionId in the response, we need to search
-          // However, in practice, the request ID should be unique enough within a session
-          // For now, we'll search all pending requests (should be small in practice)
-          // TODO: Consider adding tenantId/sessionId to response metadata in Phase 2
-          
-          let found = false;
-          for (const [key, pending] of this.pendingRequests.entries()) {
-            // Extract requestId from composite key (format: tenantId:sessionId:requestId)
-            const keyParts = key.split(':');
-            const keyRequestId = keyParts.length === 3 ? keyParts[2] : keyParts[keyParts.length - 1];
-            
-            // Match by request ID (this is safe because tenantId:sessionId provides isolation)
-            if (String(keyRequestId) === String(requestId)) {
-              clearTimeout(pending.timeout);
-              this.pendingRequests.delete(key);
-              found = true;
-              
-              try {
-                // Validate server response with Zod schema
-                const validated = JSONRPCResponseSchema.parse(message);
-                pending.resolve(validated as JSONRPCResponse);
-              } catch (validationError) {
-                // Invalid response - reject with error
-                pending.reject(new GovernanceViolationError(
-                  `Server returned invalid JSON-RPC response: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
-                  'MCPServer',
-                  MCPShieldErrorCodes.SYSTEM_ERROR
-                ));
-              }
-              break;
-            }
-          }
-          
-          if (!found) {
-            // Orphaned response - no matching pending request
-            // This is expected for notifications or responses from previous sessions
-          }
-        }
+      if (!('result' in message || 'error' in message)) {
+        return;
+      }
+
+      const wireId = message.id;
+      if (wireId === null || wireId === undefined) {
+        return;
+      }
+
+      // Exact composite-key lookup (no cross-tenant scan).
+      const pending = this.pendingRequests.get(String(wireId));
+      if (!pending) {
+        // Orphaned response - no matching pending request.
+        // Expected for notifications or responses from previous sessions.
+        return;
+      }
+
+      clearTimeout(pending.timeout);
+      this.pendingRequests.delete(String(wireId));
+
+      try {
+        // Validate server response with Zod schema
+        const validated = JSONRPCResponseSchema.parse(message) as JSONRPCResponse;
+        // Restore the client's original JSON-RPC id (the wire id was internal only).
+        pending.resolve({ ...validated, id: pending.originalId });
+      } catch (validationError) {
+        // Invalid response - reject with error
+        pending.reject(new GovernanceViolationError(
+          `Server returned invalid JSON-RPC response: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
+          'MCPServer',
+          MCPShieldErrorCodes.SYSTEM_ERROR
+        ));
       }
     });
 
@@ -333,8 +354,12 @@ export class ShieldMediator implements IMediator {
         toolParameters: toolParams,
       };
 
-      // Step 3: Rate Limiting (Check)
-      const rateLimitResult = await this.rateLimiter.checkLimit(
+      // Step 3: Rate Limiting (atomic check-and-record)
+      // Use tryConsume() so the check and the record happen in ONE synchronous
+      // critical section. The previous check-then-record pattern had a TOCTOU
+      // window: N concurrent intercept() calls could all pass checkLimit() before
+      // any recordRequest() ran, bypassing the limit under concurrency.
+      const rateLimitResult = this.rateLimiter.tryConsume(
         context.tenantId ?? 'default',
         toolName
       );
@@ -373,12 +398,8 @@ export class ShieldMediator implements IMediator {
           },
         });
 
-        // Step 6: Rate Limiting (Record) - even if BLOCKED
-        await this.rateLimiter.recordRequest(
-          context.tenantId ?? 'default',
-          toolName ?? 'unknown'
-        );
-
+        // Note: tryConsume() only consumes a token when the request is allowed,
+        // so a rate-limited request does not need (or get) a separate record call.
         return this.createBlockResponse(
           parsedRequest,
           'Too many requests - rate limit exceeded',
@@ -393,12 +414,13 @@ export class ShieldMediator implements IMediator {
       let lineageResult: Awaited<ReturnType<typeof this.taintRegistry.checkLineage>> | null = null;
       
       // Perform lineage check if this is a tool call
-      if (parsedRequest.method === 'callTool' && parsedRequest.params) {
-        const params = parsedRequest.params as Record<string, unknown>;
+      if (parsedRequest.method === MCP_METHODS.TOOLS_CALL && parsedRequest.params) {
+        // MCP tools/call args live at params.arguments; scan those for taint lineage.
+        const toolArgs = this.extractToolArguments(parsedRequest);
         try {
           lineageResult = await Promise.race([
             this.taintRegistry.checkLineage(
-              params,
+              toolArgs,
               enrichedContext.sessionId,
               enrichedContext.tenantId
             ),
@@ -432,13 +454,11 @@ export class ShieldMediator implements IMediator {
           ),
         ]);
 
-        // Fix: Force-escalate to REDACT if secretHint is present, even if R < 0.3
-        // MCPToolAnnotations extends SecretHint, so secret property is directly accessible
-        const toolAnnotations = enrichedContext.toolAnnotations;
-        if (toolAnnotations?.secret === true && decision.action === 'ALLOW') {
-          decision.action = 'REDACT';
-          decision.justification += ' (Force-escalated to REDACT due to secretHint=true)';
-        }
+        // NOTE: Secret-driven escalation (ALLOW -> REDACT, REDACT -> BLOCK) is handled
+        // in ONE place -- RiskEvaluator.evaluatePolicy() via hasSecretLeakage(). That is
+        // the single, consistent signal for secret escalation (and it also fails closed
+        // on a missing secret hint). The mediator no longer re-escalates here, which
+        // previously duplicated that logic with a divergent `secret === true` check.
       } catch (error) {
         // Fail-closed: Any error in governance defaults to BLOCK
         const failureDecision = this.handleFailure(
@@ -473,12 +493,9 @@ export class ShieldMediator implements IMediator {
           metadata: lineageMetadata,
         });
 
-        // Step 6: Rate Limiting (Record) - even if BLOCKED
-        await this.rateLimiter.recordRequest(
-          context.tenantId ?? 'default',
-          toolName ?? 'unknown'
-        );
-
+        // Rate limiting was already accounted for atomically in Step 3 (tryConsume),
+        // which consumes a token for every request that passes rate limiting -- including
+        // those later blocked by governance. No separate record call is needed here.
         return this.createBlockResponse(
           parsedRequest,
           decision.justification,
@@ -518,11 +535,8 @@ export class ShieldMediator implements IMediator {
         );
       }
 
-      // Step 6: Rate Limiting (Record)
-      await this.rateLimiter.recordRequest(
-        context.tenantId ?? 'default',
-        toolName
-      );
+      // Rate limiting was already recorded atomically in Step 3 (tryConsume);
+      // no separate record call is needed on the success path.
 
       // Step 7: Sanitization (if REDACT)
       if (decision.action === 'REDACT') {
@@ -569,8 +583,15 @@ export class ShieldMediator implements IMediator {
           // Only register taint if tool produced sensitive data
           // Check if tool annotations indicate sensitivity or if decision was REDACT
           const toolAnnotations = enrichedContext.toolAnnotations;
-          const isSensitive = 
-            toolAnnotations?.sensitive !== undefined ||
+          // `sensitive` is a SensitivityLevel enum (Public=0.0, Internal=0.5, Confidential=1.0),
+          // NOT a boolean. Only treat it as sensitive when the level is above Public;
+          // the previous `!== undefined` check tainted even an explicit Public (0.0)
+          // classification (over-tainting).
+          const annotatedSensitive =
+            toolAnnotations?.sensitive !== undefined &&
+            toolAnnotations.sensitive > SensitivityLevel.Public;
+          const isSensitive =
+            annotatedSensitive ||
             toolAnnotations?.secret === true ||
             decision.action === 'REDACT' ||
             decision.riskScore >= 0.3; // Moderate to high risk
@@ -687,12 +708,13 @@ export class ShieldMediator implements IMediator {
       let taintSensitivity: number | null = null;
       let taintOriginTool: string | null = null;
       
-      if (!lineageResult && request.method === 'callTool' && request.params) {
-        const params = request.params as Record<string, unknown>;
+      if (!lineageResult && request.method === MCP_METHODS.TOOLS_CALL && request.params) {
+        // MCP tools/call args live at params.arguments; scan those for taint lineage.
+        const toolArgs = this.extractToolArguments(request);
         try {
           lineageResult = await Promise.race([
             this.taintRegistry.checkLineage(
-              params,
+              toolArgs,
               context.sessionId,
               context.tenantId
             ),
@@ -940,46 +962,56 @@ export class ShieldMediator implements IMediator {
       };
     }
 
-    // Handle requests with ID - use dispatcher pattern with composite key
+    // Handle requests with ID - use dispatcher pattern with composite wire id.
     return new Promise<JSONRPCResponse>((resolve, reject) => {
-      const requestId = request.id!;
+      const originalId = request.id!;
       const requestIdStr = randomUUID(); // Internal tracking ID for audit
-      
-      // Fix: Generate composite key for multi-tenant isolation
-      // Format: ${tenantId}:${sessionId}:${requestId}
+
+      // Generate a globally-unique composite WIRE ID for multi-tenant isolation.
+      // Format: ${tenantId}:${sessionId}:${originalId}:${uuid}
+      //
+      // This wire id is stamped onto the outbound request and echoed back by the
+      // server, so the dispatcher can resolve the exact pending request without a
+      // cross-tenant scan. The trailing uuid guarantees uniqueness even if a client
+      // reuses an in-flight id within the same tenant/session.
       const tenantId = context.tenantId ?? 'default';
-      const compositeKey: CompositeRequestKey = `${tenantId}:${context.sessionId}:${requestId}`;
+      const wireId: CompositeRequestKey = `${tenantId}:${context.sessionId}:${originalId}:${requestIdStr}`;
+
+      // Rewrite the outbound id to the wire id; the client's original id is restored
+      // by the dispatcher before the response is handed back.
+      const outboundRequest: JSONRPCRequest = { ...request, id: wireId };
 
       const timeout = setTimeout(() => {
         // Timeout: Clean up pending request
-        const pending = this.pendingRequests.get(compositeKey);
+        const pending = this.pendingRequests.get(wireId);
         if (pending) {
-          this.pendingRequests.delete(compositeKey);
+          this.pendingRequests.delete(wireId);
           pending.reject(new GovernanceViolationError(
-            `Server timeout for request ${requestId} after ${this.evaluationTimeout * 2}ms`,
+            `Server timeout for request ${originalId} after ${this.evaluationTimeout * 2}ms`,
             'MCPServer',
             MCPShieldErrorCodes.SYSTEM_ERROR
           ));
         }
       }, this.evaluationTimeout * 2);
 
-      // Register pending request in dispatcher map using composite key
-      this.pendingRequests.set(compositeKey, {
+      // Register pending request in dispatcher map using the composite wire id.
+      this.pendingRequests.set(wireId, {
         resolve,
         reject,
         timeout,
         requestId: requestIdStr,
         tenantId: context.tenantId,
         sessionId: context.sessionId,
+        originalId,
       });
 
       // Send request (response will be routed by permanent listener)
-      this.serverTransport.send(request).catch((error) => {
+      this.serverTransport.send(outboundRequest).catch((error) => {
         // Send failed: Clean up and reject
-        const pending = this.pendingRequests.get(compositeKey);
+        const pending = this.pendingRequests.get(wireId);
         if (pending) {
           clearTimeout(pending.timeout);
-          this.pendingRequests.delete(compositeKey);
+          this.pendingRequests.delete(wireId);
         }
         reject(new GovernanceViolationError(
           `Failed to send request to MCP Server: ${error instanceof Error ? error.message : String(error)}`,
@@ -1016,14 +1048,40 @@ export class ShieldMediator implements IMediator {
   }
 
   /**
-   * Extract tool name from JSON-RPC request.
+   * Extract tool name from a JSON-RPC request.
+   *
+   * MCP `tools/call` shape: { method: 'tools/call', params: { name, arguments } }
+   * The tool name lives at params.name.
    */
   private extractToolName(request: JSONRPCRequest): string | undefined {
-    if (request.method === 'callTool' && request.params) {
+    if (request.method === MCP_METHODS.TOOLS_CALL && request.params) {
       const params = request.params as Record<string, unknown>;
       return params.name as string | undefined;
     }
     return undefined;
+  }
+
+  /**
+   * Extract the tool arguments object from a JSON-RPC request.
+   *
+   * MCP `tools/call` shape: { method: 'tools/call', params: { name, arguments } }
+   * The actual arguments (the data flowing into the tool, which is what taint
+   * lineage must scan) live at params.arguments.
+   *
+   * Fail-closed: if a well-formed `arguments` object is absent, fall back to
+   * scanning the whole params object so taint detection errs toward inspecting
+   * more rather than less.
+   */
+  private extractToolArguments(request: JSONRPCRequest): Record<string, unknown> {
+    if (request.method === MCP_METHODS.TOOLS_CALL && request.params) {
+      const params = request.params as Record<string, unknown>;
+      const args = params.arguments;
+      if (args !== null && typeof args === 'object' && !Array.isArray(args)) {
+        return args as Record<string, unknown>;
+      }
+      return params;
+    }
+    return {};
   }
 
   /**

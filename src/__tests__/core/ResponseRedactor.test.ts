@@ -969,5 +969,133 @@ describe('ResponseRedactor', () => {
       expect(message).toContain('[REDACTED]');
     });
   });
+
+  describe('Security Fixes', () => {
+    const decision: PolicyDecision = {
+      action: 'REDACT',
+      riskScore: createRiskScore(0.5),
+      justification: 'Test',
+      timestamp: new Date(),
+      policyVersion: '1.0',
+      requestId: 'req-sec',
+    };
+
+    describe('4a: error message/data redaction', () => {
+      it('should scrub PII from JSON-RPC error message', async () => {
+        const response = {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          error: {
+            code: -32000,
+            message: 'Failed to email john@example.com (ssn 123-45-6789)',
+          },
+        };
+
+        const result = await redactor.redact(response, decision);
+        expect(result.error?.message).not.toContain('john@example.com');
+        expect(result.error?.message).not.toContain('123-45-6789');
+        expect(result.error?.message).toContain('[REDACTED]');
+      });
+
+      it('should mask sensitive fields and scrub PII inside error.data', async () => {
+        const response = {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          error: {
+            code: -32000,
+            message: 'Server error',
+            data: {
+              password: 'hunter2',
+              contact: 'call 555-123-4567',
+            },
+          },
+        };
+
+        const result = await redactor.redact(response, decision);
+        const data = result.error?.data as Record<string, unknown>;
+        expect(data.password).toBe('[REDACTED]');
+        expect(data.contact).not.toContain('555-123-4567');
+      });
+
+      it('should leave a benign error unchanged', async () => {
+        const response = {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          error: { code: -32000, message: 'Server error' },
+        };
+        const result = await redactor.redact(response, decision);
+        expect(result.error?.message).toBe('Server error');
+      });
+    });
+
+    describe('4b: numeric PII scrubbing', () => {
+      it('should scrub SSN and credit card stored as JSON numbers', async () => {
+        const response = {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          result: {
+            ssn: 123456789, // SSN as a number
+            card: 1234567890123456, // credit card as a number
+            age: 42, // benign number, must be preserved
+          },
+        };
+
+        const result = await redactor.redact(response, decision);
+        const obj = result.result as Record<string, unknown>;
+        expect(obj.ssn).toBe('[REDACTED]');
+        expect(obj.card).toBe('[REDACTED]');
+        expect(obj.age).toBe(42);
+      });
+    });
+
+    describe('4c: sensitive field-name lexicon matching', () => {
+      it('should mask snake_case / camelCase sensitive fields that are not exact matches', async () => {
+        const response = {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          result: {
+            user_password: 'p1',
+            authToken: 't1',
+            api_key: 'k1',
+            privateKey: 'pk1',
+            username: 'john', // must NOT be masked
+            shipping: 'fast', // contains "pin" substring but must NOT be masked
+          },
+        };
+
+        const result = await redactor.redact(response, decision);
+        const obj = result.result as Record<string, unknown>;
+        expect(obj.user_password).toBe('[REDACTED]');
+        expect(obj.authToken).toBe('[REDACTED]');
+        expect(obj.api_key).toBe('[REDACTED]');
+        expect(obj.privateKey).toBe('[REDACTED]');
+        expect(obj.username).toBe('john');
+        expect(obj.shipping).toBe('fast');
+      });
+    });
+
+    describe('4d: extended SSN matching', () => {
+      it('should scrub contiguous and space-separated SSN forms', async () => {
+        const response = {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          result: {
+            a: 'SSN 123-45-6789',
+            b: 'SSN 123 45 6789',
+            c: 'SSN 123456789',
+          },
+        };
+
+        const result = await redactor.redact(response, decision);
+        const obj = result.result as Record<string, unknown>;
+        expect(obj.a).not.toContain('123-45-6789');
+        expect(obj.b).not.toContain('123 45 6789');
+        expect(obj.c).not.toContain('123456789');
+        expect(obj.a).toContain('[REDACTED]');
+        expect(obj.b).toContain('[REDACTED]');
+        expect(obj.c).toContain('[REDACTED]');
+      });
+    });
+  });
 });
 

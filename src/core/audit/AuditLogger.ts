@@ -35,21 +35,47 @@ export class AuditLogger implements IAuditLogger {
 
   /**
    * In-memory log cache (for queryLogs)
-   * 
-   * In production, this would be backed by a database or distributed cache
+   *
+   * In production, this would be backed by a database or distributed cache.
+   *
+   * This cache is bounded (see {@link maxCacheEntries}) and behaves as a
+   * ring buffer: once it exceeds the cap, the oldest in-memory entries are
+   * dropped. This prevents unbounded memory growth in a long-running proxy.
+   * The persisted (append-only) log file remains the complete record.
    */
   protected logCache: AuditLogEntry[] = [];
 
   /**
+   * Default maximum number of in-memory cache entries.
+   */
+  protected static readonly DEFAULT_MAX_CACHE_ENTRIES = 10000;
+
+  /**
+   * Maximum number of entries retained in the in-memory cache.
+   *
+   * When the cache grows beyond this bound, the oldest entries are evicted.
+   * NOTE: Trimming the in-memory cache never affects the persisted log file
+   * nor any hash-chain state (which is retained independently). It only
+   * bounds memory usage for {@link queryLogs}.
+   */
+  protected maxCacheEntries: number;
+
+  /**
    * Constructor
-   * 
+   *
    * @param options - Configuration options
    */
   constructor(options: {
     logDirectory?: string;
+    maxCacheEntries?: number;
   } = {}) {
     const logDir = options.logDirectory || './logs';
     this.logFilePath = join(logDir, `audit-${new Date().toISOString().split('T')[0]}.jsonl`);
+
+    // Bound the in-memory cache to avoid unbounded growth (ring-buffer behavior).
+    this.maxCacheEntries = options.maxCacheEntries && options.maxCacheEntries > 0
+      ? options.maxCacheEntries
+      : AuditLogger.DEFAULT_MAX_CACHE_ENTRIES;
 
     // Ensure log directory exists
     this.ensureLogDirectory(logDir).catch(err => {
@@ -86,8 +112,9 @@ export class AuditLogger implements IAuditLogger {
       const logLine = JSON.stringify(entry) + '\n';
       await fs.appendFile(this.logFilePath, logLine, 'utf-8');
 
-      // Update in-memory cache
+      // Update in-memory cache (bounded)
       this.logCache.push(entry);
+      this.enforceCacheBound();
     } catch (error) {
       // Base logger: Fail-open (log error but don't block)
       console.error('Audit logging failed:', error);
@@ -189,8 +216,22 @@ export class AuditLogger implements IAuditLogger {
   }
 
   /**
+   * Enforce the bounded (ring-buffer) size of the in-memory cache.
+   *
+   * Drops the oldest entries when the cache exceeds {@link maxCacheEntries}.
+   * This is purely an in-memory concern and does not touch the persisted log
+   * file or any hash-chain state.
+   */
+  protected enforceCacheBound(): void {
+    const overflow = this.logCache.length - this.maxCacheEntries;
+    if (overflow > 0) {
+      this.logCache.splice(0, overflow);
+    }
+  }
+
+  /**
    * Clear log cache (for testing only)
-   * 
+   *
    * WARNING: This should never be called in production.
    */
   clearCache(): void {
