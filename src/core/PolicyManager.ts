@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: PolicyManager Implementation
+ * TaintGate: PolicyManager Implementation
  * 
- * Policy Administration Point (PAP) implementation for MCP-Shield.
+ * Policy Administration Point (PAP) implementation for TaintGate.
  * 
  * The PolicyManager manages security policies, handles policy conflicts using
  * "Most Restrictive Wins" (MRW) resolution, and provides policy versioning.

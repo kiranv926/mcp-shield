@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: TaintRegistry Tests
+ * TaintGate: TaintRegistry Tests
  * 
  * Comprehensive test suite for the State Manager implementation.
  */

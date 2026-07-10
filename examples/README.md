@@ -20,7 +20,7 @@ npx tsx examples/<file>.ts
 
 Assembles the **full TaintGate stack** — `PolicyManager`, `RiskEvaluator`,
 `TaintRegistry`, `RateLimiter`, `ResponseRedactor`, `SecureAuditLogger`, and the
-`ShieldMediator` — and pushes a batch of `tools/call` requests through
+`TaintGate` — and pushes a batch of `tools/call` requests through
 `mediator.intercept()`. It demonstrates the four governance outcomes:
 
 - **ALLOW** — a trusted, public, closed-world tool call.

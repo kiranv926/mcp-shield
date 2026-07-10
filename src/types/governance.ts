@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: Governance Types
+ * TaintGate: Governance Types
  * 
- * Core governance types used across the MCP-Shield architecture.
+ * Core governance types used across the TaintGate architecture.
  * This is the single source of truth for policy actions and governance decisions.
  */
 

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: IRiskEvaluator Interface
+ * TaintGate: IRiskEvaluator Interface
  * 
  * Policy Decision Point (PDP) interface for RiskEvaluator.
  * 

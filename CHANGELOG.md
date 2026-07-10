@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Project relaunched as TaintGate** — an MCP governance proxy (formerly
-  developed under the working name "MCP-Shield"). This relaunch includes a
+  developed under the working name "TaintGate"). This relaunch includes a
   rename, repository hygiene cleanup, community-health documentation, and CI.
 
 ### Added

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: IPolicyManager Interface
+ * TaintGate: IPolicyManager Interface
  * 
  * Policy Administration Point (PAP) interface for PolicyManager.
  * 

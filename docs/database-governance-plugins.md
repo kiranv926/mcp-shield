@@ -20,7 +20,7 @@ graph TB
     end
     
     subgraph "TaintGate Governance"
-        Mediator[ShieldMediator]
+        Mediator[TaintGate]
         Evaluator[RiskEvaluator]
         
         subgraph "Database Governance Plugins"
@@ -794,7 +794,7 @@ export class QueryResultLimitingPlugin implements IGovernancePlugin {
 
 ```typescript
 // Integration with postgres-mcp server
-import { ShieldMediator } from '@taintgate/core';
+import { TaintGate } from '@taintgate/core';
 import { StdioTransport } from '@taintgate/transport';
 import { SQLInjectionDetectionPlugin } from './plugins/database/sql-injection-detection';
 import { DatabaseOperationControlPlugin } from './plugins/database/operation-control';
@@ -811,8 +811,8 @@ pluginRegistry.register(sqlInjectionPlugin);
 pluginRegistry.register(operationControlPlugin);
 pluginRegistry.register(dataMaskingPlugin);
 
-// Create ShieldMediator with database plugins
-const mediator = new ShieldMediator({
+// Create TaintGate with database plugins
+const mediator = new TaintGate({
   clientTransport: new StdioTransport(),
   serverTransport: new StdioTransport(),
   // ... other components
@@ -840,7 +840,7 @@ const context = {
   timestamp: new Date(),
 };
 
-// ShieldMediator will:
+// TaintGate will:
 // 1. Check for SQL injection (SQLInjectionDetectionPlugin)
 // 2. Check operation permissions (DatabaseOperationControlPlugin)
 // 3. Mask sensitive data in response (DataMaskingPlugin)

@@ -406,10 +406,10 @@ const riskEvaluator = new RiskEvaluator({
 });
 ```
 
-### With ShieldMediator
+### With TaintGate
 
 ```typescript
-import { ShieldMediator, PolicyManager, TaintRegistry } from '@taintgate/core';
+import { TaintGate, PolicyManager, TaintRegistry } from '@taintgate/core';
 
 const policyManager = new PolicyManager({
   policyPath: './policies/production.json',
@@ -418,14 +418,14 @@ const policyManager = new PolicyManager({
 
 await policyManager.loadPolicies();
 
-const mediator = new ShieldMediator({
+const mediator = new TaintGate({
   policyManager,
   riskEvaluator: new RiskEvaluator({ policyManager }),
   taintRegistry: new TaintRegistry(),
   // ... other dependencies
 });
 
-// ShieldMediator uses PolicyManager.getResolvedPolicy() internally
+// TaintGate uses PolicyManager.getResolvedPolicy() internally
 // to apply MRW conflict resolution
 ```
 

@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: Common Types
+ * TaintGate: Common Types
  * 
- * Shared types used across the MCP-Shield architecture.
+ * Shared types used across the TaintGate architecture.
  */
 
 import type { MCPToolAnnotations, SensitivityLevel } from './mcp-hints';

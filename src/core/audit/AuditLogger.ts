@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Base AuditLogger Implementation
+ * TaintGate: Base AuditLogger Implementation
  * 
  * Simple audit logging implementation that handles basic log transport.
  * This is the "dumb" logger that doesn't care about log security itself.

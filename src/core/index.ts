@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Core Components
+ * TaintGate: Core Components
  * 
  * Exports core implementations of governance components.
  */

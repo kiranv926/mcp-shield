@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: Type Definitions
+ * TaintGate: Type Definitions
  * 
- * Exports all type definitions for MCP-Shield.
+ * Exports all type definitions for TaintGate.
  */
 
 // MCP Hints (mapped to GitHub PRs)
@@ -64,7 +64,7 @@ export {
 // Error Codes
 export {
   JSONRPCErrorCodes,
-  MCPShieldErrorCodes,
+  TaintGateErrorCodes,
   ErrorMessages,
   getErrorMessage,
 } from './errors';

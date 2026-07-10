@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: IRateLimiter Interface
+ * TaintGate: IRateLimiter Interface
  * 
  * Rate limiting interface for DoS protection and resource quota management.
  * 

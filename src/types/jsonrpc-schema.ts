@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: JSON-RPC Schema Definitions
+ * TaintGate: JSON-RPC Schema Definitions
  * 
  * Zod schemas for validating JSON-RPC 2.0 requests and responses.
  * 

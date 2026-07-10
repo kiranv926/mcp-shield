@@ -9,7 +9,7 @@ The plugin architecture enables extensible governance without modifying core Tai
 ```mermaid
 graph TB
     subgraph "TaintGate Core"
-        Mediator[ShieldMediator<br/>PEP]
+        Mediator[TaintGate<br/>PEP]
         Evaluator[RiskEvaluator<br/>PDP]
         Registry[TaintRegistry]
         PolicyMgr[PolicyManager<br/>PAP]
@@ -54,7 +54,7 @@ sequenceDiagram
     participant P1 as GDPR Plugin
     participant P2 as Anomaly Plugin
     participant P3 as Token Plugin
-    participant Mediator as ShieldMediator
+    participant Mediator as TaintGate
     
     RE->>PR: evaluatePlugins(context)
     PR->>P1: evaluate(context) [Priority: 10]

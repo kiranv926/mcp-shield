@@ -1,7 +1,7 @@
 {
-  "name": "@mcp-shield/core",
+  "name": "taintgate",
   "version": "0.1.0",
-  "description": "Deterministic Policy Enforcement Point (PEP) for Model Context Protocol",
+  "description": "TaintGate — a taint-aware governance proxy (Policy Enforcement Point) for the Model Context Protocol (MCP)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -46,18 +46,22 @@
     "pdp",
     "xacml",
     "ai-safety",
-    "agent-governance"
+    "agent-governance",
+    "taint-tracking",
+    "information-flow-control",
+    "mcp-proxy",
+    "dlp"
   ],
-  "author": "MCP-Shield Contributors",
+  "author": "TaintGate Contributors",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kiranv926/mcp-shield.git"
+    "url": "https://github.com/kiranv926/taintgate.git"
   },
   "bugs": {
-    "url": "https://github.com/kiranv926/mcp-shield/issues"
+    "url": "https://github.com/kiranv926/taintgate/issues"
   },
-  "homepage": "https://github.com/kiranv926/mcp-shield#readme",
+  "homepage": "https://github.com/kiranv926/taintgate#readme",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -89,11 +93,9 @@
   },
   "files": [
     "dist",
-    "src",
     "README.md",
+    "LICENSE",
     "ARCHITECTURE.md",
-    "ARCHITECTURE_DECISIONS.md",
-    "SECURITY.md",
-    "LICENSE"
+    "SECURITY.md"
   ]
 }

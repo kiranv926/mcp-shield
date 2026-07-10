@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: SecureAuditLogger Implementation
+ * TaintGate: SecureAuditLogger Implementation
  * 
  * Production-grade audit logger with sequential hash chain for non-repudiation.
  * 
@@ -353,7 +353,7 @@ export class SecureAuditLogger extends AuditLogger {
    * 
    * CRITICAL: This method implements fail-closed behavior.
    * If hash chain calculation fails, it throws an error, which triggers
-   * a BLOCK decision in the ShieldMediator.
+   * a BLOCK decision in the TaintGate.
    * 
    * @param entry - Audit log entry to record
    * @throws Error if hash chain calculation fails (fail-closed)

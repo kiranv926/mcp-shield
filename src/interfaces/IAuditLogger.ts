@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: IAuditLogger Interface
+ * TaintGate: IAuditLogger Interface
  * 
  * Audit logging interface for governance transparency and compliance.
  * 

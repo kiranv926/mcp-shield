@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: StdioTransport Implementation
+ * TaintGate: StdioTransport Implementation
  *
  * PRODUCTION-SUPPORTED transport. This is the primary, supported transport for
  * MCP communication over stdin/stdout, and the most common deployment pattern

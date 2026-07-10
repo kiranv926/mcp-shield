@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: Standardized Error Codes
+ * TaintGate: Standardized Error Codes
  * 
- * JSON-RPC 2.0 compliant error codes for MCP-Shield governance violations.
+ * JSON-RPC 2.0 compliant error codes for TaintGate governance violations.
  * 
  * Following JSON-RPC 2.0 standards, custom error codes use the range -32000 to -32099.
  */
@@ -37,11 +37,11 @@ export const JSONRPCErrorCodes = {
 } as const;
 
 /**
- * MCP-Shield Custom Error Codes (-32000 to -32099)
+ * TaintGate Custom Error Codes (-32000 to -32099)
  */
-export const MCPShieldErrorCodes = {
+export const TaintGateErrorCodes = {
   /**
-   * Access denied by MCP-Shield policy enforcement.
+   * Access denied by TaintGate policy enforcement.
    * Used when a request is BLOCKED due to policy violation.
    */
   POLICY_VIOLATION: -32001,
@@ -75,11 +75,11 @@ export const MCPShieldErrorCodes = {
  * Error Code to Message Mapping
  */
 export const ErrorMessages: Record<number, string> = {
-  [MCPShieldErrorCodes.POLICY_VIOLATION]: 'Access denied by MCP-Shield policy enforcement',
-  [MCPShieldErrorCodes.RATE_LIMITED]: 'Too many requests - rate limit exceeded',
-  [MCPShieldErrorCodes.TAINT_ESCALATION]: 'Context sensitivity mismatch - taint escalation detected',
-  [MCPShieldErrorCodes.VALIDATION_FAILED]: 'Invalid request parameters - validation failed',
-  [MCPShieldErrorCodes.SYSTEM_ERROR]: 'System error - request blocked for security (fail-closed)',
+  [TaintGateErrorCodes.POLICY_VIOLATION]: 'Access denied by TaintGate policy enforcement',
+  [TaintGateErrorCodes.RATE_LIMITED]: 'Too many requests - rate limit exceeded',
+  [TaintGateErrorCodes.TAINT_ESCALATION]: 'Context sensitivity mismatch - taint escalation detected',
+  [TaintGateErrorCodes.VALIDATION_FAILED]: 'Invalid request parameters - validation failed',
+  [TaintGateErrorCodes.SYSTEM_ERROR]: 'System error - request blocked for security (fail-closed)',
 };
 
 /**

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: HTTPTransport Unit Tests
+ * TaintGate: HTTPTransport Unit Tests
  * 
  * Tests for the HTTPTransport implementation.
  */

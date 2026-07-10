@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Main Entry Point
+ * TaintGate: Main Entry Point
  * 
  * Deterministic Policy Enforcement Point (PEP) for Model Context Protocol
  * 

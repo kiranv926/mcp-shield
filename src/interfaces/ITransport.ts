@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: ITransport Interface
+ * TaintGate: ITransport Interface
  * 
  * Transport layer abstraction for MCP communication.
  * 
@@ -8,7 +8,7 @@
  * - SSE (Server-Sent Events)
  * - HTTP (REST/JSON-RPC)
  * 
- * This interface allows ShieldMediator to work with any transport mechanism
+ * This interface allows TaintGate to work with any transport mechanism
  * without being coupled to a specific implementation.
  * 
  * @see ARCHITECTURE.md - Transport Layer Abstraction

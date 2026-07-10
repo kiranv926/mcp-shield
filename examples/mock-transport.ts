@@ -5,7 +5,7 @@
  * demonstrate the full proxy flow OFFLINE — with no network and no real MCP
  * server process.
  *
- * The ShieldMediator forwards every ALLOW/REDACT request to its `serverTransport`
+ * The TaintGate forwards every ALLOW/REDACT request to its `serverTransport`
  * and then waits for a correlated response to come back through the same
  * transport's `onMessage` listener (keyed by the wire id it stamped on the
  * outbound request). `MockServerTransport` plays the role of the downstream MCP

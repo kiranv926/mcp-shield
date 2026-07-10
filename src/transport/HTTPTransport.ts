@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: HTTPTransport Implementation
+ * TaintGate: HTTPTransport Implementation
  *
  * EXPERIMENTAL — NOT yet compliant with the MCP Streamable HTTP transport
  * spec (2025-06-18 and later). This is a simplified request/response HTTP

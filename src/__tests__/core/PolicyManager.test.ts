@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: PolicyManager Unit Tests
+ * TaintGate: PolicyManager Unit Tests
  * 
  * Tests for the PolicyManager (PAP) implementation.
  */
@@ -16,7 +16,7 @@ describe('PolicyManager', () => {
   let testPolicyPath: string;
 
   beforeEach(() => {
-    testPolicyDir = join(tmpdir(), `mcp-shield-policy-test-${Date.now()}`);
+    testPolicyDir = join(tmpdir(), `taintgate-policy-test-${Date.now()}`);
     testPolicyPath = join(testPolicyDir, 'test-policy.json');
   });
 

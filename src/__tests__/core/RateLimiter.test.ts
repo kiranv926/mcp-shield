@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: RateLimiter Unit Tests
+ * TaintGate: RateLimiter Unit Tests
  * 
  * Tests for the RateLimiter implementation.
  */

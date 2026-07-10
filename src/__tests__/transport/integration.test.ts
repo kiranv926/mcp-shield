@@ -1,10 +1,10 @@
 /**
- * MCP-Shield: Transport Integration Tests
+ * TaintGate: Transport Integration Tests
  * 
- * Integration tests for transports with ShieldMediator.
+ * Integration tests for transports with TaintGate.
  */
 
-import { ShieldMediator } from '../../mediator/ShieldMediator';
+import { TaintGate } from '../../mediator/TaintGate';
 import { StdioTransport } from '../../transport/StdioTransport';
 import { HTTPTransport } from '../../transport/HTTPTransport';
 import { createTransport } from '../../transport/index';
@@ -45,12 +45,12 @@ class MockAbortController {
 (global as any).AbortController = MockAbortController;
 
 describe('Transport Integration', () => {
-  describe('StdioTransport with ShieldMediator', () => {
+  describe('StdioTransport with TaintGate', () => {
     let inputStream: Readable;
     let outputStream: Writable;
     let clientTransport: StdioTransport;
     let serverTransport: StdioTransport;
-    let mediator: ShieldMediator | undefined;
+    let mediator: TaintGate | undefined;
 
     beforeEach(async () => {
       // Create mock streams
@@ -87,7 +87,7 @@ describe('Transport Integration', () => {
         logDirectory: './test-logs',
       });
 
-      mediator = new ShieldMediator({
+      mediator = new TaintGate({
         clientTransport,
         serverTransport,
         policyManager,
@@ -103,7 +103,7 @@ describe('Transport Integration', () => {
 
     afterEach(async () => {
       if (mediator) {
-        // ShieldMediator doesn't have a stop() method, just close transports
+        // TaintGate doesn't have a stop() method, just close transports
         await clientTransport.close();
         await serverTransport.close();
       }
@@ -186,10 +186,10 @@ describe('Transport Integration', () => {
     });
   });
 
-  describe('HTTPTransport with ShieldMediator', () => {
+  describe('HTTPTransport with TaintGate', () => {
     let clientTransport: HTTPTransport;
     let serverTransport: HTTPTransport;
-    let mediator: ShieldMediator | undefined;
+    let mediator: TaintGate | undefined;
 
     beforeEach(async () => {
       mockFetch.mockClear();
@@ -227,7 +227,7 @@ describe('Transport Integration', () => {
         logDirectory: './test-logs',
       });
 
-      mediator = new ShieldMediator({
+      mediator = new TaintGate({
         clientTransport,
         serverTransport,
         policyManager,
@@ -243,7 +243,7 @@ describe('Transport Integration', () => {
 
     afterEach(async () => {
       if (mediator) {
-        // ShieldMediator doesn't have a stop() method, just close transports
+        // TaintGate doesn't have a stop() method, just close transports
         await clientTransport.close();
         await serverTransport.close();
       }

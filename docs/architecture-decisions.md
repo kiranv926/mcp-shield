@@ -39,7 +39,7 @@ If any policy in the chain (Global, Tenant, or Tool) identifies a risk that requ
 ## Decision 2: Request Validation - Integrate Zod
 
 ### Decision
-**Integrate Zod directly into the ShieldMediator for runtime validation.**
+**Integrate Zod directly into the TaintGate for runtime validation.**
 
 ### Rationale
 Since we are using TypeScript, Zod is the gold standard for bridging the gap between static types and dynamic JSON-RPC data.
@@ -87,7 +87,7 @@ export interface IRateLimiter {
 
 ### Implementation
 - **Location**: `src/interfaces/IRateLimiter.ts`
-- **Injection**: Injected into `ShieldMediator` via constructor
+- **Injection**: Injected into `TaintGate` via constructor
 - **Access**: Via `IMediator.getRateLimiter()`
 
 ### Why Separate Interface?
@@ -105,7 +105,7 @@ export interface IRateLimiter {
 
 ## The Finalized "Shield" Execution Flow
 
-When these three decisions are combined, the `ShieldMediator` follows this **precise sequence** for every tool call:
+When these three decisions are combined, the `TaintGate` follows this **precise sequence** for every tool call:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: PolicyManager Additional Tests
+ * TaintGate: PolicyManager Additional Tests
  * 
  * Additional comprehensive tests for edge cases, error scenarios, and integration.
  */
@@ -15,7 +15,7 @@ describe('PolicyManager - Additional Tests', () => {
   let testPolicyPath: string;
 
   beforeEach(() => {
-    testPolicyDir = join(tmpdir(), `mcp-shield-policy-additional-${Date.now()}`);
+    testPolicyDir = join(tmpdir(), `taintgate-policy-additional-${Date.now()}`);
     testPolicyPath = join(testPolicyDir, 'test-policy.json');
   });
 

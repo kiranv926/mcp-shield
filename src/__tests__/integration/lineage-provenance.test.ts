@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Lineage Provenance Report Integration Tests
+ * TaintGate: Lineage Provenance Report Integration Tests
  * 
  * Demonstrates the audit trail capabilities for data laundering detection.
  * These tests verify that the system can generate complete lineage provenance
@@ -7,7 +7,7 @@
  */
 
 import { TaintRegistry } from '../../core/TaintRegistry';
-import { ShieldMediator } from '../../mediator/ShieldMediator';
+import { TaintGate } from '../../mediator/TaintGate';
 import { LineageProvenanceReport, ReportPrivacyLevel } from '../../core/reporters/LineageProvenanceReport';
 import type { ITransport } from '../../interfaces/ITransport';
 import type { IRiskEvaluator } from '../../interfaces/IRiskEvaluator';
@@ -318,7 +318,7 @@ class MockRateLimiter implements IRateLimiter {
 
 describe('Lineage Provenance Report', () => {
   let taintRegistry: TaintRegistry;
-  let mediator: ShieldMediator;
+  let mediator: TaintGate;
   let clientTransport: MockTransport;
   let serverTransport: MockTransport;
   let auditLogger: MockAuditLogger;
@@ -345,7 +345,7 @@ describe('Lineage Provenance Report', () => {
       taintTimeout: 500,
     };
 
-    mediator = new ShieldMediator(config);
+    mediator = new TaintGate(config);
 
     // Start mediator after transports are set up
     mediator.start();

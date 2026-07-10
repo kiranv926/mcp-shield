@@ -2,7 +2,7 @@
  * PolicyManager Usage Example
  * 
  * This example demonstrates how to use the PolicyManager component
- * for managing security policies in MCP-Shield.
+ * for managing security policies in TaintGate.
  * 
  * @see POLICY_MANAGER_USAGE.md for comprehensive documentation
  */

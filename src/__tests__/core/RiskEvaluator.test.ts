@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: RiskEvaluator Unit Tests
+ * TaintGate: RiskEvaluator Unit Tests
  * 
  * Tests for the RiskEvaluator (PDP) implementation.
  */
@@ -24,7 +24,7 @@ describe('RiskEvaluator', () => {
   let testPolicyPath: string;
 
   beforeEach(async () => {
-    testPolicyDir = join(tmpdir(), `mcp-shield-risk-test-${Date.now()}`);
+    testPolicyDir = join(tmpdir(), `taintgate-risk-test-${Date.now()}`);
     testPolicyPath = join(testPolicyDir, 'test-policy.json');
 
     // Create test policy file

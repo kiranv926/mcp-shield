@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: RiskEvaluator Implementation
+ * TaintGate: RiskEvaluator Implementation
  * 
- * Policy Decision Point (PDP) implementation for MCP-Shield.
+ * Policy Decision Point (PDP) implementation for TaintGate.
  * 
  * The RiskEvaluator implements the deterministic risk calculation algorithm:
  * R = clamp((W_s × S + W_e × E) × (1 - T), 0, 1)

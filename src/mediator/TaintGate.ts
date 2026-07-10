@@ -1,9 +1,9 @@
 /**
- * MCP-Shield: ShieldMediator Implementation
+ * TaintGate: TaintGate Implementation
  * 
- * Policy Enforcement Point (PEP) implementation for MCP-Shield.
+ * Policy Enforcement Point (PEP) implementation for TaintGate.
  * 
- * The ShieldMediator is the "Gatekeeper" that intercepts all JSON-RPC requests
+ * The TaintGate is the "Gatekeeper" that intercepts all JSON-RPC requests
  * between MCP Clients and Servers, enforces policy decisions, and implements
  * fail-closed behavior for security.
  * 
@@ -22,7 +22,7 @@ import type {
 } from '../types/governance';
 import { FailClosedDefaultPolicy } from '../types/governance';
 import {
-  MCPShieldErrorCodes,
+  TaintGateErrorCodes,
   getErrorMessage,
 } from '../types/errors';
 import { JSONRPCRequestSchema, JSONRPCResponseSchema } from '../types/jsonrpc-schema';
@@ -58,9 +58,9 @@ export const MCP_METHODS = {
 } as const;
 
 /**
- * ShieldMediator Configuration
+ * TaintGate Configuration
  */
-export interface ShieldMediatorConfig {
+export interface TaintGateConfig {
   /**
    * RiskEvaluator instance (PDP)
    */
@@ -92,12 +92,12 @@ export interface ShieldMediatorConfig {
   auditLogger: IAuditLogger;
   
   /**
-   * Client transport (from MCP Client to ShieldMediator)
+   * Client transport (from MCP Client to TaintGate)
    */
   clientTransport: ITransport;
   
   /**
-   * Server transport (from ShieldMediator to MCP Server)
+   * Server transport (from TaintGate to MCP Server)
    */
   serverTransport: ITransport;
   
@@ -130,7 +130,7 @@ export class GovernanceViolationError extends Error {
   constructor(
     message: string,
     public readonly component: string,
-    public readonly errorCode: number = MCPShieldErrorCodes.SYSTEM_ERROR
+    public readonly errorCode: number = TaintGateErrorCodes.SYSTEM_ERROR
   ) {
     super(message);
     this.name = 'GovernanceViolationError';
@@ -138,7 +138,7 @@ export class GovernanceViolationError extends Error {
 }
 
 /**
- * ShieldMediator - Policy Enforcement Point Implementation
+ * TaintGate - Policy Enforcement Point Implementation
  * 
  * Implements the canonical 7-step fail-closed execution flow:
  * 1. Validation (Zod)
@@ -179,7 +179,7 @@ interface PendingRequest {
  */
 type CompositeRequestKey = string;
 
-export class ShieldMediator implements IMediator {
+export class TaintGate implements IMediator {
   private readonly riskEvaluator: IRiskEvaluator;
   private readonly taintRegistry: ITaintRegistry;
   private readonly policyManager: IPolicyManager;
@@ -204,7 +204,7 @@ export class ShieldMediator implements IMediator {
   private readonly pendingRequests = new Map<CompositeRequestKey, PendingRequest>();
   private isStarted = false;
 
-  constructor(config: ShieldMediatorConfig) {
+  constructor(config: TaintGateConfig) {
     this.riskEvaluator = config.riskEvaluator;
     this.taintRegistry = config.taintRegistry;
     this.policyManager = config.policyManager;
@@ -237,7 +237,7 @@ export class ShieldMediator implements IMediator {
    */
   start(): void {
     if (this.isStarted) {
-      throw new Error('ShieldMediator is already started');
+      throw new Error('TaintGate is already started');
     }
 
     // Register single permanent listener for server transport responses.
@@ -282,7 +282,7 @@ export class ShieldMediator implements IMediator {
         pending.reject(new GovernanceViolationError(
           `Server returned invalid JSON-RPC response: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
           'MCPServer',
-          MCPShieldErrorCodes.SYSTEM_ERROR
+          TaintGateErrorCodes.SYSTEM_ERROR
         ));
       }
     });
@@ -338,7 +338,7 @@ export class ShieldMediator implements IMediator {
         return this.createBlockResponse(
           errorRequest,
           validation.error ?? 'Invalid JSON-RPC request structure',
-          MCPShieldErrorCodes.VALIDATION_FAILED,
+          TaintGateErrorCodes.VALIDATION_FAILED,
           requestId
         );
       }
@@ -403,7 +403,7 @@ export class ShieldMediator implements IMediator {
         return this.createBlockResponse(
           parsedRequest,
           'Too many requests - rate limit exceeded',
-          MCPShieldErrorCodes.RATE_LIMITED,
+          TaintGateErrorCodes.RATE_LIMITED,
           requestId
         );
       }
@@ -442,7 +442,7 @@ export class ShieldMediator implements IMediator {
           () => new GovernanceViolationError(
             `Evaluation timeout after ${this.evaluationTimeout}ms`,
             'RiskEvaluator',
-            MCPShieldErrorCodes.POLICY_VIOLATION
+            TaintGateErrorCodes.POLICY_VIOLATION
           )
         );
 
@@ -491,7 +491,7 @@ export class ShieldMediator implements IMediator {
         return this.createBlockResponse(
           parsedRequest,
           decision.justification,
-          MCPShieldErrorCodes.POLICY_VIOLATION,
+          TaintGateErrorCodes.POLICY_VIOLATION,
           requestId
         );
       }
@@ -522,7 +522,7 @@ export class ShieldMediator implements IMediator {
         return this.createBlockResponse(
           parsedRequest,
           'MCP Server connection failed - request blocked for security',
-          MCPShieldErrorCodes.SYSTEM_ERROR,
+          TaintGateErrorCodes.SYSTEM_ERROR,
           requestId
         );
       }
@@ -559,7 +559,7 @@ export class ShieldMediator implements IMediator {
           return this.createBlockResponse(
             parsedRequest,
             'Response sanitization failed - request blocked for security',
-            MCPShieldErrorCodes.SYSTEM_ERROR,
+            TaintGateErrorCodes.SYSTEM_ERROR,
             requestId
           );
         }
@@ -657,7 +657,7 @@ export class ShieldMediator implements IMediator {
           message: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
         },
-        failedComponent: 'ShieldMediator',
+        failedComponent: 'TaintGate',
         action: 'BLOCK',
         timestamp: Date.now(),
       });
@@ -675,7 +675,7 @@ export class ShieldMediator implements IMediator {
       return this.createBlockResponse(
         errorRequest,
         'System error - request blocked for security (fail-closed)',
-        MCPShieldErrorCodes.SYSTEM_ERROR,
+        TaintGateErrorCodes.SYSTEM_ERROR,
         requestId
       );
     }
@@ -799,7 +799,7 @@ export class ShieldMediator implements IMediator {
       throw new GovernanceViolationError(
         `Risk evaluation failed: ${error instanceof Error ? error.message : String(error)}`,
         'RiskEvaluator',
-        MCPShieldErrorCodes.SYSTEM_ERROR
+        TaintGateErrorCodes.SYSTEM_ERROR
       );
     }
   }
@@ -816,7 +816,7 @@ export class ShieldMediator implements IMediator {
       return this.createBlockResponse(
         request,
         decision.justification,
-        MCPShieldErrorCodes.POLICY_VIOLATION,
+        TaintGateErrorCodes.POLICY_VIOLATION,
         decision.requestId
       );
     }
@@ -977,7 +977,7 @@ export class ShieldMediator implements IMediator {
           pending.reject(new GovernanceViolationError(
             `Server timeout for request ${originalId} after ${this.evaluationTimeout * 2}ms`,
             'MCPServer',
-            MCPShieldErrorCodes.SYSTEM_ERROR
+            TaintGateErrorCodes.SYSTEM_ERROR
           ));
         }
       }, this.evaluationTimeout * 2);
@@ -1004,7 +1004,7 @@ export class ShieldMediator implements IMediator {
         reject(new GovernanceViolationError(
           `Failed to send request to MCP Server: ${error instanceof Error ? error.message : String(error)}`,
           'MCPServer',
-          MCPShieldErrorCodes.SYSTEM_ERROR
+          TaintGateErrorCodes.SYSTEM_ERROR
         ));
       });
     });
@@ -1018,7 +1018,7 @@ export class ShieldMediator implements IMediator {
   createBlockResponse(
     request: JSONRPCRequest,
     reason: string,
-    errorCode: number = MCPShieldErrorCodes.POLICY_VIOLATION,
+    errorCode: number = TaintGateErrorCodes.POLICY_VIOLATION,
     requestId?: string
   ): JSONRPCResponse {
     return {

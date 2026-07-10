@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: ITaintRegistry Interface
+ * TaintGate: ITaintRegistry Interface
  * 
  * State Manager interface for TaintRegistry.
  * 

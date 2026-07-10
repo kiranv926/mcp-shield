@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: SecureAuditLogger Unit Tests
+ * TaintGate: SecureAuditLogger Unit Tests
  * 
  * Tests for the hardened SecureAuditLogger implementation with hash chain integrity.
  */
@@ -18,7 +18,7 @@ describe('SecureAuditLogger', () => {
   let logDir: string;
 
   beforeEach(() => {
-    logDir = join(tmpdir(), `mcp-shield-secure-test-${Date.now()}`);
+    logDir = join(tmpdir(), `taintgate-secure-test-${Date.now()}`);
     logger = new SecureAuditLogger({ logDirectory: logDir });
   });
 

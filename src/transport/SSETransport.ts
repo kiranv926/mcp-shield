@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: SSETransport Implementation
+ * TaintGate: SSETransport Implementation
  *
  * DEPRECATED — the MCP HTTP+SSE transport is deprecated in favor of the
  * Streamable HTTP transport. This implementation is retained only for legacy

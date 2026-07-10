@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: SSETransport Unit Tests
+ * TaintGate: SSETransport Unit Tests
  * 
  * Tests for the SSETransport implementation.
  */

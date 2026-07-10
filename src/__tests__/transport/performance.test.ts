@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Transport Performance Benchmarks
+ * TaintGate: Transport Performance Benchmarks
  * 
  * Performance tests for transport implementations.
  * 

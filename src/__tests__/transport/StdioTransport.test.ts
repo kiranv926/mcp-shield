@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: StdioTransport Unit Tests
+ * TaintGate: StdioTransport Unit Tests
  * 
  * Tests for the StdioTransport implementation.
  */

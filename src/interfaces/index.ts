@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: Core Interfaces
+ * TaintGate: Core Interfaces
  * 
- * Exports all core interfaces for the MCP-Shield architecture.
+ * Exports all core interfaces for the TaintGate architecture.
  */
 
 export type { IMediator } from './IMediator';

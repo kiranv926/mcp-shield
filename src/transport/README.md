@@ -1,10 +1,10 @@
-# MCP-Shield: Transport Module
+# TaintGate: Transport Module
 
 This module provides transport implementations for MCP (Model Context Protocol) communication.
 
 ## Overview
 
-MCP-Shield supports three transport mechanisms:
+TaintGate supports three transport mechanisms:
 
 1. **StdioTransport** - Standard input/output (most common for MCP servers)
 2. **SSETransport** - Server-Sent Events (HTTP-based, bidirectional)
@@ -17,14 +17,14 @@ MCP-Shield supports three transport mechanisms:
 For MCP servers that communicate via stdin/stdout:
 
 ```typescript
-import { StdioTransport } from '@mcp-shield/transport';
+import { StdioTransport } from 'taintgate';
 
 const transport = new StdioTransport({
   debug: true, // Optional: enable debug logging
 });
 
-// Use with ShieldMediator
-const mediator = new ShieldMediator({
+// Use with TaintGate
+const mediator = new TaintGate({
   clientTransport: transport,
   serverTransport: transport,
   // ... other config
@@ -36,7 +36,7 @@ const mediator = new ShieldMediator({
 For HTTP-based MCP servers using Server-Sent Events:
 
 ```typescript
-import { SSETransport } from '@mcp-shield/transport';
+import { SSETransport } from 'taintgate';
 
 const transport = new SSETransport({
   baseUrl: 'https://mcp-server.example.com',
@@ -53,7 +53,7 @@ const transport = new SSETransport({
 For REST-based MCP servers:
 
 ```typescript
-import { HTTPTransport } from '@mcp-shield/transport';
+import { HTTPTransport } from 'taintgate';
 
 const transport = new HTTPTransport({
   baseUrl: 'https://mcp-server.example.com',
@@ -67,7 +67,7 @@ const transport = new HTTPTransport({
 ### Using Transport Factory
 
 ```typescript
-import { createTransport } from '@mcp-shield/transport';
+import { createTransport } from 'taintgate';
 
 // Create transport from configuration
 const transport = createTransport({
@@ -87,17 +87,17 @@ const httpTransport = createTransport({
 });
 ```
 
-## Integration with ShieldMediator
+## Integration with TaintGate
 
 ```typescript
-import { ShieldMediator } from '@mcp-shield/mediator';
-import { StdioTransport } from '@mcp-shield/transport';
-import { PolicyManager } from '@mcp-shield/core';
-import { RiskEvaluator } from '@mcp-shield/core';
-import { TaintRegistry } from '@mcp-shield/core';
-import { RateLimiter } from '@mcp-shield/core';
-import { ResponseRedactor } from '@mcp-shield/core';
-import { SecureAuditLogger } from '@mcp-shield/core';
+import { TaintGate } from 'taintgate';
+import { StdioTransport } from 'taintgate';
+import { PolicyManager } from 'taintgate';
+import { RiskEvaluator } from 'taintgate';
+import { TaintRegistry } from 'taintgate';
+import { RateLimiter } from 'taintgate';
+import { ResponseRedactor } from 'taintgate';
+import { SecureAuditLogger } from 'taintgate';
 
 // Create transports
 const clientTransport = new StdioTransport();
@@ -113,8 +113,8 @@ const auditLogger = new SecureAuditLogger({
   logDirectory: './logs',
 });
 
-// Create ShieldMediator
-const mediator = new ShieldMediator({
+// Create TaintGate
+const mediator = new TaintGate({
   clientTransport,
   serverTransport,
   policyManager,

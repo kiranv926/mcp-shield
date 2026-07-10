@@ -1,12 +1,12 @@
 /**
- * MCP-Shield: Mediator Module
+ * TaintGate: Mediator Module
  * 
- * Exports the ShieldMediator implementation and related types.
+ * Exports the TaintGate implementation and related types.
  */
 
 export {
-  ShieldMediator,
+  TaintGate,
   GovernanceViolationError,
-  type ShieldMediatorConfig,
-} from './ShieldMediator';
+  type TaintGateConfig,
+} from './TaintGate';
 

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: AuditLogger Unit Tests
+ * TaintGate: AuditLogger Unit Tests
  * 
  * Tests for the base AuditLogger implementation (simple logging without security features).
  */
@@ -16,7 +16,7 @@ describe('AuditLogger', () => {
   let logDir: string;
 
   beforeEach(() => {
-    logDir = join(tmpdir(), `mcp-shield-test-${Date.now()}`);
+    logDir = join(tmpdir(), `taintgate-test-${Date.now()}`);
     logger = new AuditLogger({ logDirectory: logDir });
   });
 
@@ -268,7 +268,7 @@ describe('AuditLogger', () => {
 
   describe('bounded cache', () => {
     it('should evict oldest in-memory entries beyond maxCacheEntries', async () => {
-      const boundedDir = join(tmpdir(), `mcp-shield-bound-${Date.now()}`);
+      const boundedDir = join(tmpdir(), `taintgate-bound-${Date.now()}`);
       const bounded = new AuditLogger({ logDirectory: boundedDir, maxCacheEntries: 3 });
 
       try {

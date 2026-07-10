@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Data Laundering Prevention Integration Tests
+ * TaintGate: Data Laundering Prevention Integration Tests
  * 
  * Tests end-to-end data laundering prevention using hash-based taint tracking.
  * 
@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { randomUUID } from 'crypto';
-import { ShieldMediator, ShieldMediatorConfig } from '../../mediator/ShieldMediator';
+import { TaintGate, TaintGateConfig } from '../../mediator/TaintGate';
 import { TaintRegistry } from '../../core/TaintRegistry';
 import { SensitivityLevel } from '../../types/mcp-hints';
 import { createRiskScore } from '../../types/common';
@@ -273,7 +273,7 @@ class MockTransport implements ITransport {
 }
 
 describe('Data Laundering Prevention Integration', () => {
-  let mediator: ShieldMediator;
+  let mediator: TaintGate;
   let taintRegistry: TaintRegistry;
   let mockRiskEvaluator: MockRiskEvaluator;
   let mockPolicyManager: MockPolicyManager;
@@ -296,7 +296,7 @@ describe('Data Laundering Prevention Integration', () => {
     mockClientTransport = new MockTransport();
     mockServerTransport = new MockTransport();
 
-    const config: ShieldMediatorConfig = {
+    const config: TaintGateConfig = {
       riskEvaluator: mockRiskEvaluator,
       taintRegistry,
       policyManager: mockPolicyManager,
@@ -309,7 +309,7 @@ describe('Data Laundering Prevention Integration', () => {
       taintTimeout: 500,
     };
 
-    mediator = new ShieldMediator(config);
+    mediator = new TaintGate(config);
     mediator.start();
   });
 
@@ -317,7 +317,7 @@ describe('Data Laundering Prevention Integration', () => {
     it('should prevent data laundering: Tool A → Tool B with tainted data', async () => {
       // Simulate Tool A returning sensitive data
       // We manually register taint to verify the lineage checking works
-      // In production, this would be done automatically by ShieldMediator
+      // In production, this would be done automatically by TaintGate
       const sensitiveValues = ['user@example.com', '12345', '67890', 'admin@example.com'];
       await taintRegistry.registerTaint(
         {
@@ -370,7 +370,7 @@ describe('Data Laundering Prevention Integration', () => {
 
       // Mock RiskEvaluator to return BLOCK when taint contexts are present
       mockRiskEvaluator.buildEvaluationContext = jest.fn().mockImplementation(async (context) => {
-        // ShieldMediator will call checkLineage internally and add taintContexts
+        // TaintGate will call checkLineage internally and add taintContexts
         const lineageResult = await taintRegistry.checkLineage(
           toolBRequest.params?.args as Record<string, unknown>,
           context.sessionId,

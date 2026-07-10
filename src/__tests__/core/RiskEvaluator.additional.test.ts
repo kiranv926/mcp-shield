@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: RiskEvaluator Additional Tests
+ * TaintGate: RiskEvaluator Additional Tests
  * 
  * Additional comprehensive tests for edge cases, error scenarios, and integration.
  */
@@ -23,7 +23,7 @@ describe('RiskEvaluator - Additional Tests', () => {
   let testPolicyPath: string;
 
   beforeEach(async () => {
-    testPolicyDir = join(tmpdir(), `mcp-shield-risk-additional-${Date.now()}`);
+    testPolicyDir = join(tmpdir(), `taintgate-risk-additional-${Date.now()}`);
     testPolicyPath = join(testPolicyDir, 'test-policy.json');
 
     await fs.mkdir(testPolicyDir, { recursive: true });

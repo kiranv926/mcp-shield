@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: ResponseRedactor Unit Tests
+ * TaintGate: ResponseRedactor Unit Tests
  * 
  * Tests for the ResponseRedactor implementation.
  */

@@ -1,16 +1,16 @@
 /**
  * taintgate CLI: governance pipeline factory.
  *
- * Wires up the real MCP-Shield components (PolicyManager, TaintRegistry,
+ * Wires up the real TaintGate components (PolicyManager, TaintRegistry,
  * RiskEvaluator, ResponseRedactor, RateLimiter, AuditLogger) behind a
- * ShieldMediator. The mediator is constructed with a no-op transport because
+ * TaintGate. The mediator is constructed with a no-op transport because
  * the `wrap` bridge drives the raw child-process stdio itself and only calls
  * the mediator's evaluation / redaction helpers (evaluateRequest,
  * createBlockResponse, getResponseRedactor) — never intercept()/forwardRequest(),
  * which are the transport-coupled paths.
  */
 
-import { ShieldMediator } from '../mediator/ShieldMediator';
+import { TaintGate } from '../mediator/TaintGate';
 import { RiskEvaluator } from '../core/RiskEvaluator';
 import { PolicyManager } from '../core/PolicyManager';
 import { TaintRegistry } from '../core/TaintRegistry';
@@ -21,7 +21,7 @@ import type { ITransport } from '../interfaces/ITransport';
 import type { JSONRPCRequest, JSONRPCResponse } from '../types/common';
 
 /**
- * Minimal ITransport used only to satisfy the ShieldMediator constructor.
+ * Minimal ITransport used only to satisfy the TaintGate constructor.
  * None of its methods are exercised by the `wrap` bridge.
  */
 class NoopTransport implements ITransport {
@@ -47,7 +47,7 @@ export interface PipelineOptions {
 }
 
 export interface Pipeline {
-  mediator: ShieldMediator;
+  mediator: TaintGate;
   taintRegistry: TaintRegistry;
   responseRedactor: ResponseRedactor;
   auditLogger: AuditLogger;
@@ -70,7 +70,7 @@ export async function createPipeline(opts: PipelineOptions): Promise<Pipeline> {
   const auditLogger = new AuditLogger({ logDirectory: opts.logDir });
   const transport = new NoopTransport();
 
-  const mediator = new ShieldMediator({
+  const mediator = new TaintGate({
     riskEvaluator,
     taintRegistry,
     policyManager,

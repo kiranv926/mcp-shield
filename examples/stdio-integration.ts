@@ -17,7 +17,7 @@
  */
 
 import { PassThrough } from 'stream';
-import { ShieldMediator } from '../src/mediator/ShieldMediator';
+import { TaintGate } from '../src/mediator/TaintGate';
 import { StdioTransport } from '../src/transport/StdioTransport';
 import { PolicyManager } from '../src/core/PolicyManager';
 import { RiskEvaluator } from '../src/core/RiskEvaluator';
@@ -67,7 +67,7 @@ async function main() {
   });
 
   // --- Mediator (Policy Enforcement Point) --------------------------------
-  const mediator = new ShieldMediator({
+  const mediator = new TaintGate({
     clientTransport,
     serverTransport,
     policyManager,

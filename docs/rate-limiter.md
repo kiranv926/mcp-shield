@@ -257,12 +257,12 @@ if (!isHealthy) {
 }
 ```
 
-## Integration with ShieldMediator
+## Integration with TaintGate
 
-The RateLimiter is automatically integrated into ShieldMediator and is checked before policy evaluation:
+The RateLimiter is automatically integrated into TaintGate and is checked before policy evaluation:
 
 ```typescript
-import { ShieldMediator, ShieldMediatorConfig } from '@taintgate/core';
+import { TaintGate, TaintGateConfig } from '@taintgate/core';
 import { RateLimiter } from '@taintgate/core';
 
 // Create rate limiter
@@ -274,8 +274,8 @@ const rateLimiter = new RateLimiter({
   },
 });
 
-// Configure ShieldMediator with rate limiter
-const mediator = new ShieldMediator({
+// Configure TaintGate with rate limiter
+const mediator = new TaintGate({
   // ... other config
   rateLimiter: rateLimiter,
 });
@@ -286,14 +286,14 @@ const mediator = new ShieldMediator({
 
 ### Rate Limit Error Handling
 
-When a rate limit is exceeded, ShieldMediator returns a JSON-RPC error:
+When a rate limit is exceeded, TaintGate returns a JSON-RPC error:
 
 ```typescript
 {
   jsonrpc: '2.0',
   id: 1,
   error: {
-    code: -32002,  // MCPShieldErrorCodes.RATE_LIMITED
+    code: -32002,  // TaintGateErrorCodes.RATE_LIMITED
     message: 'Too many requests - rate limit exceeded',
     data: {
       reason: 'Rate limit exceeded: 1001/1000 requests in 60s window',
@@ -592,7 +592,7 @@ Rate limits are isolated per tenant:
 
 ### Fail-Closed Behavior
 
-If the RateLimiter fails, ShieldMediator blocks requests (fail-closed):
+If the RateLimiter fails, TaintGate blocks requests (fail-closed):
 - Errors in `checkLimit()` result in blocking
 - System errors use `SYSTEM_ERROR` code (-32004)
 - Rate limit errors use `RATE_LIMITED` code (-32002)

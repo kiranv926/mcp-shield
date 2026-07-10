@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Tool Annotation Types
+ * TaintGate: Tool Annotation Types
  * 
  * Maps to Model Context Protocol Security Enhancement Proposals (SEPs)
  * based on GitHub PRs in the modelcontextprotocol/specification repository.
@@ -153,7 +153,7 @@ export interface MCPToolAnnotations
 /**
  * Fail-Closed Default Values
  * 
- * When MCP servers don't provide security hints, MCP-Shield applies
+ * When MCP servers don't provide security hints, TaintGate applies
  * fail-closed defaults to ensure maximum security.
  */
 export const FailClosedDefaults = {

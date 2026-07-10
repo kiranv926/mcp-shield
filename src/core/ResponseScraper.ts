@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: ResponseScraper Utility
+ * TaintGate: ResponseScraper Utility
  *
  * Extracts searchable tokens from MCP server responses to populate the TaintRegistry.
  * Implements DoS protection via depth and length limits.

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Transport Module
+ * TaintGate: Transport Module
  * 
  * Transport implementations for MCP communication.
  */

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Governance E2E Security Tests
+ * TaintGate: Governance E2E Security Tests
  * 
  * This test suite verifies the complete governance lifecycle under adversarial conditions.
  * Tests cover data laundering prevention, audit log integrity, multi-tenant isolation,
@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { ShieldMediator, ShieldMediatorConfig } from '../../mediator/ShieldMediator';
+import { TaintGate, TaintGateConfig } from '../../mediator/TaintGate';
 import { TaintRegistry } from '../../core/TaintRegistry';
 import { ResponseScraper } from '../../core/ResponseScraper';
 import { SensitivityLevel } from '../../types/mcp-hints';
@@ -329,7 +329,7 @@ class MockRateLimiter implements IRateLimiter {
 }
 
 describe('Shield Governance E2E Security Tests', () => {
-  let mediator: ShieldMediator;
+  let mediator: TaintGate;
   let taintRegistry: TaintRegistry;
   let auditLogger: MockAuditLogger;
   let serverTransport: MockTransport;
@@ -341,7 +341,7 @@ describe('Shield Governance E2E Security Tests', () => {
     serverTransport = new MockTransport();
     clientTransport = new MockTransport();
 
-    const config: ShieldMediatorConfig = {
+    const config: TaintGateConfig = {
       taintRegistry,
       riskEvaluator: new MockRiskEvaluator(),
       policyManager: new MockPolicyManager(),
@@ -354,7 +354,7 @@ describe('Shield Governance E2E Security Tests', () => {
       taintTimeout: 500,
     };
 
-    mediator = new ShieldMediator(config);
+    mediator = new TaintGate(config);
     mediator.start();
   });
 
@@ -840,7 +840,7 @@ describe('Shield Governance E2E Security Tests', () => {
       }
 
       const failingLogger = new FailingAuditLogger();
-      const failingMediator = new ShieldMediator({
+      const failingMediator = new TaintGate({
         taintRegistry,
         riskEvaluator: new MockRiskEvaluator(),
         policyManager: new MockPolicyManager(),
@@ -996,7 +996,7 @@ describe('Shield Governance E2E Security Tests', () => {
         }
       }
 
-      const redactMediator = new ShieldMediator({
+      const redactMediator = new TaintGate({
         taintRegistry,
         riskEvaluator: new RedactRiskEvaluator(),
         policyManager: new MockPolicyManager(),

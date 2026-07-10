@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: ResponseRedactor Implementation
+ * TaintGate: ResponseRedactor Implementation
  * 
  * Response sanitization implementation for REDACT decision enforcement.
  * 

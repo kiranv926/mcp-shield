@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: RateLimiter Implementation
+ * TaintGate: RateLimiter Implementation
  * 
  * Rate limiting implementation for DoS protection and resource quota management.
  * 

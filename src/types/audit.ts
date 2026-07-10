@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Structured Audit Entry Types
+ * TaintGate: Structured Audit Entry Types
  * 
  * Phase 3: Enhanced audit logging for "Major Significance" compliance.
  * 

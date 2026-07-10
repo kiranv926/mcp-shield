@@ -1,7 +1,7 @@
 /**
- * MCP-Shield: IMediator Interface
+ * TaintGate: IMediator Interface
  * 
- * Policy Enforcement Point (PEP) interface for ShieldMediator.
+ * Policy Enforcement Point (PEP) interface for TaintGate.
  * 
  * The Mediator intercepts all JSON-RPC requests between MCP Clients and Servers,
  * queries the Policy Decision Point (PDP) for decisions, and enforces those decisions.
@@ -171,7 +171,7 @@ export interface IMediator {
    * 
    * Uses standardized JSON-RPC error codes:
    * - -32602: Invalid params (validation failed)
-   * - -32001: Access denied by MCP-Shield (policy violation)
+   * - -32001: Access denied by TaintGate (policy violation)
    * - -32002: Too many requests (rate limited)
    * - -32003: Context sensitivity mismatch (taint escalation)
    * 

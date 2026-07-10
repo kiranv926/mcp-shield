@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: IResponseRedactor Interface
+ * TaintGate: IResponseRedactor Interface
  * 
  * Response sanitization interface for REDACT decision enforcement.
  * 

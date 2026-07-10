@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: Lineage Provenance Report Generator
+ * TaintGate: Lineage Provenance Report Generator
  * 
  * Generates human-readable and machine-readable audit reports showing data flow through tools.
  * This enables complete audit trails for compliance (GDPR, HIPAA, SOC 2) and security forensics.

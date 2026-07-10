@@ -27,7 +27,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createPipeline } from './pipeline';
 import { ResponseScraper } from '../core/ResponseScraper';
-import { MCPShieldErrorCodes } from '../types/errors';
+import { TaintGateErrorCodes } from '../types/errors';
 import { createRiskScore } from '../types/common';
 import { SensitivityLevel } from '../types/mcp-hints';
 import type { MCPToolAnnotations } from '../types/mcp-hints';
@@ -81,7 +81,7 @@ function makeDecision(action: PolicyAction, justification: string): PolicyDecisi
   };
 }
 
-/** Map an MCP tool's `annotations` object onto MCP-Shield's security hints. */
+/** Map an MCP tool's `annotations` object onto TaintGate's security hints. */
 function mapAnnotations(name: string, raw: unknown): MCPToolAnnotations {
   const a = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const ann: MCPToolAnnotations = { toolName: name };
@@ -239,7 +239,7 @@ export async function runWrap(cmd: string, args: string[], opts: WrapOptions): P
         mediator.createBlockResponse(
           request,
           decision.justification,
-          MCPShieldErrorCodes.POLICY_VIOLATION,
+          TaintGateErrorCodes.POLICY_VIOLATION,
           decision.requestId
         )
       );
@@ -333,7 +333,7 @@ export async function runWrap(cmd: string, args: string[], opts: WrapOptions): P
           mediator.createBlockResponse(
             req,
             'response sanitization failed - blocked for security',
-            MCPShieldErrorCodes.SYSTEM_ERROR,
+            TaintGateErrorCodes.SYSTEM_ERROR,
             entry.decision.requestId
           )
         );

@@ -1,8 +1,8 @@
-# MCP-Shield Architecture
+# TaintGate Architecture
 
 ## Overview
 
-MCP-Shield implements a **three-layer security architecture** based on the XACML (eXtensible Access Control Markup Language) pattern, adapted for the Model Context Protocol. This architecture separates concerns into Policy Enforcement, Policy Decision, and Policy Administration layers, ensuring deterministic, auditable, and scalable security governance.
+TaintGate implements a **three-layer security architecture** based on the XACML (eXtensible Access Control Markup Language) pattern, adapted for the Model Context Protocol. This architecture separates concerns into Policy Enforcement, Policy Decision, and Policy Administration layers, ensuring deterministic, auditable, and scalable security governance.
 
 ### Execution Flow
 
@@ -11,7 +11,7 @@ Every request follows this **canonical fail-closed sequence**:
 ```mermaid
 sequenceDiagram
     participant Client as MCP Client
-    participant Mediator as ShieldMediator (PEP)
+    participant Mediator as TaintGate (PEP)
     participant Validator as Zod Validator
     participant RateLimiter as IRateLimiter
     participant TaintReg as TaintRegistry
@@ -80,9 +80,9 @@ See [ARCHITECTURE_DECISIONS.md](./ARCHITECTURE_DECISIONS.md) for detailed decisi
 
 ## Architecture Layers
 
-### Layer 1: Policy Enforcement Point (PEP) - ShieldMediator
+### Layer 1: Policy Enforcement Point (PEP) - TaintGate
 
-The **Policy Enforcement Point (PEP)** is the entry point and enforcement layer of MCP-Shield. It acts as a mandatory proxy that intercepts all JSON-RPC communication between MCP Clients and MCP Servers.
+The **Policy Enforcement Point (PEP)** is the entry point and enforcement layer of TaintGate. It acts as a mandatory proxy that intercepts all JSON-RPC communication between MCP Clients and MCP Servers.
 
 #### Responsibilities
 
@@ -119,7 +119,7 @@ The **Policy Enforcement Point (PEP)** is the entry point and enforcement layer 
 #### Interface Contract
 
 ```typescript
-interface ShieldMediator {
+interface TaintGate {
   // Intercept and evaluate request
   evaluateRequest(request: JSONRPCRequest, context: RequestContext): Promise<PolicyDecision>;
   
@@ -135,7 +135,7 @@ interface ShieldMediator {
 
 ```mermaid
 graph LR
-    Client["MCP Client"] -->|"1. JSON-RPC Request"| PEP["ShieldMediator (PEP)"]
+    Client["MCP Client"] -->|"1. JSON-RPC Request"| PEP["TaintGate (PEP)"]
     PEP -->|"2. Query PDP"| PDP["RiskEvaluator (PDP)"]
     PDP -->|"3. Decision"| PEP
     PEP -->|"4. ALLOW: Forward"| Server["MCP Server"]
@@ -371,7 +371,7 @@ The **ResponseRedactor** implements the REDACT decision enforcement.
 
 #### Role in Architecture
 
-- **PEP Integration**: Called by ShieldMediator when decision is REDACT
+- **PEP Integration**: Called by TaintGate when decision is REDACT
 - **Two-Tier Sanitization**: Schema-based + Pattern-based scrubbing
 - **Deterministic Output**: Same input → Same sanitized output
 
@@ -389,7 +389,7 @@ The **ResponseRedactor** implements the REDACT decision enforcement.
 ```mermaid
 sequenceDiagram
     participant Client as MCP Client
-    participant PEP as ShieldMediator (PEP)
+    participant PEP as TaintGate (PEP)
     participant PDP as RiskEvaluator (PDP)
     participant TR as TaintRegistry
     participant PAP as PolicyManager (PAP)
@@ -427,7 +427,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Client["**MCP Client**"] -->|"Request"| PEP["**ShieldMediator (PEP)**<br/>• Intercept<br/>• Query PDP"]
+    Client["**MCP Client**"] -->|"Request"| PEP["**TaintGate (PEP)**<br/>• Intercept<br/>• Query PDP"]
     PEP -->|"Evaluate Risk"| PDP["**RiskEvaluator (PDP)**<br/>• Calculate R<br/>• Evaluate"]
     PDP <-->|"Fetch Policies"| PAP["**PolicyManager (PAP)**<br/>• Fetch Policies"]
     PDP -->|"Query Context"| TR["**TaintRegistry**<br/>• Context<br/>• Lineage"]
@@ -483,7 +483,7 @@ graph TD
 graph TB
     subgraph Pod["MCP Client Pod/Container"]
         Client["MCP Client<br/>(LLM)"]
-        Shield["MCP-Shield<br/>(PEP/PDP/PAP)"]
+        Shield["TaintGate<br/>(PEP/PDP/PAP)"]
         Client -->|"Internal"| Shield
     end
     
@@ -500,7 +500,7 @@ graph TB
 ```mermaid
 graph LR
     Client["MCP Client"] -->|"1. Request"| Gateway["API Gateway"]
-    Gateway -->|"2. Forward"| Shield["MCP-Shield<br/>(Middleware)"]
+    Gateway -->|"2. Forward"| Shield["TaintGate<br/>(Middleware)"]
     Shield -->|"3. Filtered Request"| Servers["MCP Servers"]
     Servers -->|"4. Response"| Shield
     Shield -->|"5. Filtered Response"| Gateway
@@ -514,7 +514,7 @@ graph LR
 ```mermaid
 graph LR
     Client["MCP Client"] -->|"1. Request"| Mesh["Service Mesh"]
-    Mesh -->|"2. Policy Plugin"| Shield["MCP-Shield<br/>(Policy Plugin)"]
+    Mesh -->|"2. Policy Plugin"| Shield["TaintGate<br/>(Policy Plugin)"]
     Shield -->|"3. Filtered Request"| Servers["MCP Servers"]
     Servers -->|"4. Response"| Shield
     Shield -->|"5. Filtered Response"| Mesh
@@ -528,7 +528,7 @@ graph LR
 
 ## Performance Characteristics
 
-### PEP (ShieldMediator)
+### PEP (TaintGate)
 - **Latency**: < 1ms overhead (excluding PDP evaluation)
 - **Throughput**: 10,000+ requests/second per instance
 - **Stream-thru**: Zero-copy for R < 0.1

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: ShieldMediator Tests
+ * TaintGate: TaintGate Tests
  * 
  * Comprehensive test suite for the Policy Enforcement Point (PEP) implementation.
  */
@@ -17,8 +17,8 @@ import type {
 import type { PolicyDecision, PolicyAction } from '../../types/governance';
 import type { SensitivityLevel } from '../../types/mcp-hints';
 import { createRiskScore } from '../../types/common';
-import { MCPShieldErrorCodes } from '../../types/errors';
-import { ShieldMediator, ShieldMediatorConfig, GovernanceViolationError } from '../../mediator/ShieldMediator';
+import { TaintGateErrorCodes } from '../../types/errors';
+import { TaintGate, TaintGateConfig, GovernanceViolationError } from '../../mediator/TaintGate';
 import type { IRiskEvaluator } from '../../interfaces/IRiskEvaluator';
 import type { ITaintRegistry } from '../../interfaces/ITaintRegistry';
 import type { IPolicyManager } from '../../interfaces/IPolicyManager';
@@ -295,8 +295,8 @@ class MockTransport implements ITransport {
   }
 }
 
-describe('ShieldMediator', () => {
-  let mediator: ShieldMediator;
+describe('TaintGate', () => {
+  let mediator: TaintGate;
   let mockRiskEvaluator: MockRiskEvaluator;
   let mockTaintRegistry: MockTaintRegistry;
   let mockPolicyManager: MockPolicyManager;
@@ -306,7 +306,7 @@ describe('ShieldMediator', () => {
   let mockClientTransport: MockTransport;
   let mockServerTransport: MockTransport;
 
-  const createConfig = (): ShieldMediatorConfig => ({
+  const createConfig = (): TaintGateConfig => ({
     riskEvaluator: mockRiskEvaluator,
     taintRegistry: mockTaintRegistry,
     policyManager: mockPolicyManager,
@@ -330,7 +330,7 @@ describe('ShieldMediator', () => {
     mockServerTransport = new MockTransport();
 
     const config = createConfig();
-    mediator = new ShieldMediator(config);
+    mediator = new TaintGate(config);
   });
 
   afterEach(() => {
@@ -362,7 +362,7 @@ describe('ShieldMediator', () => {
 
     it('should throw error if already started', () => {
       mediator.start();
-      expect(() => mediator.start()).toThrow('ShieldMediator is already started');
+      expect(() => mediator.start()).toThrow('TaintGate is already started');
     });
   });
 
@@ -447,7 +447,7 @@ describe('ShieldMediator', () => {
       const response = await mediator.intercept(invalidRequest, context);
 
       expect(response.error).toBeDefined();
-      expect(response.error?.code).toBe(MCPShieldErrorCodes.VALIDATION_FAILED);
+      expect(response.error?.code).toBe(TaintGateErrorCodes.VALIDATION_FAILED);
     });
 
     it('should block request when rate limit exceeded', async () => {
@@ -477,7 +477,7 @@ describe('ShieldMediator', () => {
       const response = await mediator.intercept(request, context);
 
       expect(response.error).toBeDefined();
-      expect(response.error?.code).toBe(MCPShieldErrorCodes.RATE_LIMITED);
+      expect(response.error?.code).toBe(TaintGateErrorCodes.RATE_LIMITED);
     });
 
     it('should allow low-risk request', async () => {
@@ -588,7 +588,7 @@ describe('ShieldMediator', () => {
       const response = await mediator.intercept(request, context);
 
       expect(response.error).toBeDefined();
-      expect(response.error?.code).toBe(MCPShieldErrorCodes.POLICY_VIOLATION);
+      expect(response.error?.code).toBe(TaintGateErrorCodes.POLICY_VIOLATION);
     });
 
     it('should force-escalate to REDACT when secretHint is true', async () => {
@@ -667,7 +667,7 @@ describe('ShieldMediator', () => {
       // Should block due to timeout (fail-closed)
       // The timeout creates a BLOCK decision which uses POLICY_VIOLATION code
       expect(response.error).toBeDefined();
-      expect(response.error?.code).toBe(MCPShieldErrorCodes.POLICY_VIOLATION);
+      expect(response.error?.code).toBe(TaintGateErrorCodes.POLICY_VIOLATION);
       expect(response.error?.message).toContain('Access denied');
     });
   });
@@ -685,14 +685,14 @@ describe('ShieldMediator', () => {
       const response = mediator.createBlockResponse(
         request,
         'Test block reason',
-        MCPShieldErrorCodes.POLICY_VIOLATION,
+        TaintGateErrorCodes.POLICY_VIOLATION,
         requestId
       );
 
       expect(response.jsonrpc).toBe('2.0');
       expect(response.id).toBe(123); // Preserved original ID
       expect(response.error).toBeDefined();
-      expect(response.error?.code).toBe(MCPShieldErrorCodes.POLICY_VIOLATION);
+      expect(response.error?.code).toBe(TaintGateErrorCodes.POLICY_VIOLATION);
       expect(response.error?.data).toBeDefined();
       expect((response.error?.data as any).requestId).toBe(requestId);
     });
@@ -706,7 +706,7 @@ describe('ShieldMediator', () => {
 
       const response = mediator.createBlockResponse(request, 'Test reason');
 
-      expect(response.error?.code).toBe(MCPShieldErrorCodes.POLICY_VIOLATION);
+      expect(response.error?.code).toBe(TaintGateErrorCodes.POLICY_VIOLATION);
     });
   });
 

@@ -1,5 +1,5 @@
 /**
- * MCP-Shield: TaintRegistry Implementation
+ * TaintGate: TaintRegistry Implementation
  * 
  * State Manager for context-aware taint tracking.
  * 
@@ -314,7 +314,7 @@ export class TaintRegistry implements ITaintRegistry {
    * Register a new taint context.
    * 
    * CRITICAL FIX (Issue #1, #3): Now accepts actual data values from tool responses.
-   * This method is called by ShieldMediator after extracting values from server responses.
+   * This method is called by TaintGate after extracting values from server responses.
    * 
    * Records a new taint discovery (e.g., from a tool output).
    * Implements the "Data Laundering Prevention" by tracking origin tool and actual data values.
@@ -523,7 +523,7 @@ export class TaintRegistry implements ITaintRegistry {
    * - Max depth: 5 levels
    * - Max string length: 1024 characters
    * - Max tokens per request: 500
-   * - Timeout: 100ms (fail-closed if exceeded, handled by ShieldMediator)
+   * - Timeout: 100ms (fail-closed if exceeded, handled by TaintGate)
    */
   async checkLineage(
     args: Record<string, unknown>,
