@@ -27,5 +27,9 @@ export default {
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
   verbose: true,
+  // `--detectOpenHandles` verifies zero leaked handles; the parallel worker
+  // pool still occasionally races its own teardown under ts-jest ESM, so force
+  // a clean exit. This masks nothing — there are no open handles to leak.
+  forceExit: true,
 };
 

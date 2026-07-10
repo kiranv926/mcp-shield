@@ -769,7 +769,7 @@ describe('RiskEvaluator', () => {
     it('should timeout PolicyManager calls and return fail-closed decision', async () => {
       const slowPolicyManager = {
         getRiskEvaluationConfig: async () => {
-          await new Promise(resolve => setTimeout(resolve, 10000)); // 10 seconds
+          await new Promise(resolve => { const t = setTimeout(resolve, 10000); (t as { unref?: () => void }).unref?.(); });
           return {
             weightSensitivity: 0.6,
             weightExposure: 0.4,
@@ -779,7 +779,7 @@ describe('RiskEvaluator', () => {
           };
         },
         getResolvedPolicy: async () => {
-          await new Promise(resolve => setTimeout(resolve, 10000));
+          await new Promise(resolve => { const t = setTimeout(resolve, 10000); (t as { unref?: () => void }).unref?.(); });
           return {
             policyVersion: '1.0',
             thresholds: { allow: 0.3, block: 0.7 },

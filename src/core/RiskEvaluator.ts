@@ -631,15 +631,22 @@ export class RiskEvaluator implements IRiskEvaluator {
     timeoutMs: number,
     operation: string
   ): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`${operation} timed out after ${timeoutMs}ms`)),
-          timeoutMs
-        )
-      ),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<T>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${operation} timed out after ${timeoutMs}ms`)),
+        timeoutMs
+      );
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      // Cancel the timeout when the operation settles first, so the timer does
+      // not linger and keep the event loop alive.
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   /**

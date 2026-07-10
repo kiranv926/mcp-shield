@@ -499,6 +499,8 @@ export class RateLimiter implements IRateLimiter {
     this.cleanupTimer = setInterval(() => {
       this.cleanupExpiredEntries();
     }, this.cleanupInterval);
+    // Do not keep the event loop alive solely for this background timer.
+    this.cleanupTimer.unref?.();
     
     // Ensure cleanup runs on process exit
     // Increase max listeners for test environments to prevent warnings

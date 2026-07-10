@@ -471,7 +471,12 @@ describe('RiskEvaluator - Additional Tests', () => {
     it('should handle TaintRegistry timeout gracefully', async () => {
       const slowTaintRegistry = {
         checkLineage: async () => {
-          await new Promise(resolve => setTimeout(resolve, 10000)); // 10 seconds
+          // Deliberately slower than the evaluator's timeout; unref so this
+          // never-cleared timer does not keep the test runner alive.
+          await new Promise(resolve => {
+            const t = setTimeout(resolve, 10000); // 10 seconds
+            (t as { unref?: () => void }).unref?.();
+          });
           return { highestSensitivity: null, relevantContexts: [], containsSecrets: false };
         },
       } as any;

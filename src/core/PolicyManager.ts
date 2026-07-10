@@ -536,6 +536,8 @@ export class PolicyManager implements IPolicyManager {
         // File doesn't exist or can't be accessed - ignore (previous policy remains active)
       }
     }, this.config.reloadInterval);
+    // Do not keep the event loop alive solely for the hot-reload timer.
+    this.reloadTimer.unref?.();
   }
 
   /**

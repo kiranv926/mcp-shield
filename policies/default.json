@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "global": {
+    "riskThresholds": {
+      "allow": 0.3,
+      "block": 0.7
+    },
+    "weights": {
+      "sensitivity": 0.6,
+      "exposure": 0.4
+    },
+    "enabled": true
+  },
+  "tenants": {
+    "acme-corp": {
+      "riskThresholds": {
+        "allow": 0.25,
+        "block": 0.6
+      },
+      "weights": {
+        "sensitivity": 0.7,
+        "exposure": 0.3
+      },
+      "enabled": true
+    },
+    "healthcare": {
+      "riskThresholds": {
+        "allow": 0.15,
+        "block": 0.4
+      },
+      "weights": {
+        "sensitivity": 0.8,
+        "exposure": 0.2
+      },
+      "enabled": true
+    }
+  },
+  "tools": {
+    "database:read_row": {
+      "actionOverride": "REDACT",
+      "enabled": true
+    },
+    "database:write_row": {
+      "actionOverride": "BLOCK",
+      "enabled": true
+    },
+    "filesystem:read_file": {
+      "riskThresholds": {
+        "allow": 0.4,
+        "block": 0.8
+      },
+      "enabled": true
+    },
+    "slack:post_message": {
+      "actionOverride": "BLOCK",
+      "enabled": true
+    }
+  }
+}

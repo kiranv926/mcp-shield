@@ -1,12 +1,15 @@
 /**
  * MCP-Shield: SSETransport Implementation
- * 
- * Transport implementation for MCP servers using Server-Sent Events (SSE).
- * 
- * This transport handles JSON-RPC messages over HTTP using SSE for server-to-client
- * communication and HTTP POST for client-to-server communication.
- * 
- * Protocol:
+ *
+ * DEPRECATED — the MCP HTTP+SSE transport is deprecated in favor of the
+ * Streamable HTTP transport. This implementation is retained only for legacy
+ * compatibility and is NOT recommended for new integrations.
+ *
+ * Additionally, it relies on a global `EventSource` (browser-provided or
+ * polyfilled) and therefore does NOT work on bare Node.js without an
+ * EventSource polyfill.
+ *
+ * Legacy protocol (deprecated):
  * - Client → Server: HTTP POST with JSON-RPC request in body
  * - Server → Client: SSE stream with JSON-RPC responses
  */
@@ -188,14 +191,14 @@ export class SSETransport implements ITransport {
     
     this.eventSource = new EventSource(url);
     
-    this.eventSource.onopen = () => {
+    this.eventSource.onopen = (): void => {
       this.isReadyState = true;
       if (this.debug) {
         console.error('[SSETransport] SSE connection opened');
       }
     };
     
-    this.eventSource.onmessage = (event: MessageEvent) => {
+    this.eventSource.onmessage = (event: MessageEvent): void => {
       try {
         const message = JSON.parse(event.data) as JSONRPCRequest | JSONRPCResponse;
         
@@ -231,7 +234,7 @@ export class SSETransport implements ITransport {
       }
     };
     
-    this.eventSource.onerror = (error: Event) => {
+    this.eventSource.onerror = (error: Event): void => {
       this.isReadyState = false;
       if (this.debug) {
         console.error('[SSETransport] SSE connection error:', error);
@@ -247,8 +250,11 @@ export class SSETransport implements ITransport {
    */
   private createAbortSignal(timeoutMs: number): AbortSignal {
     // Use native AbortSignal.timeout if available (Node.js 17.3+)
-    if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal && typeof (AbortSignal as any).timeout === 'function') {
-      return (AbortSignal as any).timeout(timeoutMs);
+    const abortSignalCtor = AbortSignal as typeof AbortSignal & {
+      timeout?: (ms: number) => AbortSignal;
+    };
+    if (typeof AbortSignal !== 'undefined' && typeof abortSignalCtor.timeout === 'function') {
+      return abortSignalCtor.timeout(timeoutMs);
     }
     
     // Polyfill for older environments

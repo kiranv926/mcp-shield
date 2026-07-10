@@ -1,12 +1,16 @@
 /**
  * MCP-Shield: HTTPTransport Implementation
- * 
- * Transport implementation for MCP servers using HTTP/REST communication.
- * 
- * This transport handles JSON-RPC messages over HTTP using POST requests
- * for both directions (request-response pattern).
- * 
- * Protocol:
+ *
+ * EXPERIMENTAL — NOT yet compliant with the MCP Streamable HTTP transport
+ * spec (2025-06-18 and later). This is a simplified request/response HTTP
+ * transport and should be treated as experimental / not production-ready.
+ *
+ * Follow-up: align with the MCP Streamable HTTP spec, including the
+ * single-endpoint model, `Accept` header negotiation (application/json and
+ * text/event-stream), and `Mcp-Session-Id` session semantics. Until then,
+ * this implementation does not interoperate with spec-compliant MCP servers.
+ *
+ * Current (non-spec) behavior:
  * - Client → Server: HTTP POST with JSON-RPC request in body
  * - Server → Client: HTTP response with JSON-RPC response in body
  */
@@ -152,8 +156,11 @@ export class HTTPTransport implements ITransport {
    */
   private createAbortSignal(timeoutMs: number): AbortSignal {
     // Use native AbortSignal.timeout if available (Node.js 17.3+)
-    if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal && typeof (AbortSignal as any).timeout === 'function') {
-      return (AbortSignal as any).timeout(timeoutMs);
+    const abortSignalCtor = AbortSignal as typeof AbortSignal & {
+      timeout?: (ms: number) => AbortSignal;
+    };
+    if (typeof AbortSignal !== 'undefined' && typeof abortSignalCtor.timeout === 'function') {
+      return abortSignalCtor.timeout(timeoutMs);
     }
     
     // Polyfill for older environments

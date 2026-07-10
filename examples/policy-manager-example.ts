@@ -105,6 +105,11 @@ async function main() {
     console.error('❌ Reload failed:', error);
     console.log('   Previous policy preserved');
   }
+
+  // 9. Cleanup: stop the hot-reload timer so the process can exit cleanly.
+  // (enableHotReload starts a setInterval that otherwise keeps Node alive.)
+  policyManager.destroy();
+  console.log('\n🛑 PolicyManager disposed. Done.');
 }
 
 // Run example

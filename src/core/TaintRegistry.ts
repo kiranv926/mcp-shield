@@ -187,6 +187,8 @@ export class TaintRegistry implements ITaintRegistry {
     this.cleanupInterval = setInterval(() => {
       this.purgeExpiredSessions(this.config.sessionTTL * 1000);
     }, 5 * 60 * 1000);
+    // Do not keep the event loop alive solely for this background timer.
+    this.cleanupInterval.unref?.();
     
     // Unref to allow process to exit if this is the only timer
     if (this.cleanupInterval.unref) {

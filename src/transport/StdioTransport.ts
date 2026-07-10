@@ -1,11 +1,13 @@
 /**
  * MCP-Shield: StdioTransport Implementation
- * 
- * Transport implementation for MCP servers using stdin/stdout communication.
- * 
- * This transport handles JSON-RPC messages over standard input/output streams,
- * which is the most common deployment pattern for MCP servers.
- * 
+ *
+ * PRODUCTION-SUPPORTED transport. This is the primary, supported transport for
+ * MCP communication over stdin/stdout, and the most common deployment pattern
+ * for MCP servers.
+ *
+ * It handles JSON-RPC messages over standard input/output streams using a
+ * line-delimited JSON (NDJSON) framing: one JSON-RPC message per line.
+ *
  * Protocol: Line-delimited JSON (NDJSON) - one JSON-RPC message per line
  */
 
@@ -97,12 +99,12 @@ export class StdioTransport implements ITransport {
       return new Promise((resolve, reject) => {
         let resolved = false;
         
-        const cleanup = () => {
+        const cleanup = (): void => {
           this.outputStream.removeListener('error', onError);
           this.outputStream.removeListener('drain', onDrain);
         };
-        
-        const onError = (error: Error) => {
+
+        const onError = (error: Error): void => {
           if (!resolved) {
             resolved = true;
             cleanup();
@@ -110,7 +112,7 @@ export class StdioTransport implements ITransport {
           }
         };
         
-        const onDrain = () => {
+        const onDrain = (): void => {
           if (!resolved) {
             resolved = true;
             cleanup();

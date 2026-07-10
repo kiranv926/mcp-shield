@@ -418,19 +418,15 @@ export class ShieldMediator implements IMediator {
         // MCP tools/call args live at params.arguments; scan those for taint lineage.
         const toolArgs = this.extractToolArguments(parsedRequest);
         try {
-          lineageResult = await Promise.race([
+          lineageResult = await this.raceWithTimeout(
             this.taintRegistry.checkLineage(
               toolArgs,
               enrichedContext.sessionId,
               enrichedContext.tenantId
             ),
-            new Promise<Awaited<ReturnType<typeof this.taintRegistry.checkLineage>>>((_, reject) =>
-              setTimeout(
-                () => reject(new Error(`TaintRegistry timeout after ${this.taintTimeout}ms`)),
-                this.taintTimeout
-              )
-            ),
-          ]);
+            this.taintTimeout,
+            () => new Error(`TaintRegistry timeout after ${this.taintTimeout}ms`)
+          );
         } catch (error) {
           // Fail-closed: TaintRegistry timeout or error - lineageResult remains null
           // This will be handled in evaluateRequest
@@ -440,19 +436,15 @@ export class ShieldMediator implements IMediator {
       // Evaluate governance decision (lineageResult passed for efficiency)
       let decision: PolicyDecision;
       try {
-        decision = await Promise.race([
+        decision = await this.raceWithTimeout(
           this.evaluateRequest(parsedRequest, enrichedContext, lineageResult),
-          new Promise<PolicyDecision>((_, reject) =>
-            setTimeout(
-              () => reject(new GovernanceViolationError(
-                `Evaluation timeout after ${this.evaluationTimeout}ms`,
-                'RiskEvaluator',
-                MCPShieldErrorCodes.POLICY_VIOLATION
-              )),
-              this.evaluationTimeout
-            )
-          ),
-        ]);
+          this.evaluationTimeout,
+          () => new GovernanceViolationError(
+            `Evaluation timeout after ${this.evaluationTimeout}ms`,
+            'RiskEvaluator',
+            MCPShieldErrorCodes.POLICY_VIOLATION
+          )
+        );
 
         // NOTE: Secret-driven escalation (ALLOW -> REDACT, REDACT -> BLOCK) is handled
         // in ONE place -- RiskEvaluator.evaluatePolicy() via hasSecretLeakage(). That is
@@ -712,19 +704,15 @@ export class ShieldMediator implements IMediator {
         // MCP tools/call args live at params.arguments; scan those for taint lineage.
         const toolArgs = this.extractToolArguments(request);
         try {
-          lineageResult = await Promise.race([
+          lineageResult = await this.raceWithTimeout(
             this.taintRegistry.checkLineage(
               toolArgs,
               context.sessionId,
               context.tenantId
             ),
-            new Promise<Awaited<ReturnType<typeof this.taintRegistry.checkLineage>>>((_, reject) =>
-              setTimeout(
-                () => reject(new Error(`TaintRegistry timeout after ${this.taintTimeout}ms`)),
-                this.taintTimeout
-              )
-            ),
-          ]);
+            this.taintTimeout,
+            () => new Error(`TaintRegistry timeout after ${this.taintTimeout}ms`)
+          );
         } catch (error) {
           // Fail-closed: TaintRegistry timeout or error defaults to maximum sensitivity
           taintSensitivity = 1.0;
@@ -1045,6 +1033,31 @@ export class ShieldMediator implements IMediator {
         },
       },
     };
+  }
+
+  /**
+   * Race an async operation against a timeout, clearing the timer once the
+   * operation settles so it does not linger and keep the event loop alive.
+   *
+   * Fail-closed semantics are preserved: if the timeout wins, it rejects with
+   * the provided error and the caller's catch defaults to BLOCK.
+   */
+  private async raceWithTimeout<T>(
+    operation: Promise<T>,
+    timeoutMs: number,
+    makeTimeoutError: () => Error
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(makeTimeoutError()), timeoutMs);
+    });
+    try {
+      return await Promise.race([operation, timeout]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   /**
