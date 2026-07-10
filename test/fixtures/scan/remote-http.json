@@ -1,0 +1,7 @@
+{
+  "servers": {
+    "weather-api": {
+      "url": "http://api.example.com/mcp"
+    }
+  }
+}

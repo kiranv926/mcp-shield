@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "filesystem-docs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@1.0.3", "/Users/example/projects/docs"]
+    },
+    "local-dev": {
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}

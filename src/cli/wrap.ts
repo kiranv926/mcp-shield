@@ -30,14 +30,66 @@ import { ResponseScraper } from '../core/ResponseScraper';
 import { TaintGateErrorCodes } from '../types/errors';
 import { createRiskScore } from '../types/common';
 import { SensitivityLevel } from '../types/mcp-hints';
+import {
+  loadPinStore,
+  savePinStore,
+  createEmptyPinStore,
+  diffToolsAgainstPins,
+  applyPinPolicy,
+  recordDiffIntoStore,
+  DEFAULT_PIN_FILE,
+} from './toolPinning';
 import type { MCPToolAnnotations } from '../types/mcp-hints';
 import type { JSONRPCRequest, JSONRPCResponse, RequestContext } from '../types/common';
 import type { PolicyAction, PolicyDecision } from '../types/governance';
+import type { PinPolicy, PinStore, McpToolDefinition } from './toolPinning';
 
 export interface WrapOptions {
   policyPath?: string;
   logDir: string;
   failMode: 'open' | 'closed';
+  /** Enable tool-definition pinning (rug-pull / tool-poisoning detection). */
+  pin?: boolean;
+  /** Path to the pin store ("lock file"); defaults to ./taintgate.lock.json. */
+  pinFile?: string;
+  /** What to do on a pin violation; defaults to 'warn' when pinning is enabled. */
+  pinPolicy?: PinPolicy;
+}
+
+/**
+ * Parse a single `wrap` flag that belongs to tool-definition pinning.
+ *
+ * The top-level `wrap` flag loop lives in index.ts (owned by the CLI wiring);
+ * this helper is exported so that loop can delegate the `--pin*` flags without
+ * duplicating their semantics. `takeVal` returns the flag's value (advancing
+ * the caller's argv cursor). Returns true if the key was a pinning flag.
+ */
+export function parseWrapPinFlag(
+  key: string,
+  takeVal: () => string,
+  opts: WrapOptions
+): boolean {
+  switch (key) {
+    case '--pin':
+      opts.pin = true;
+      if (opts.pinPolicy === undefined) opts.pinPolicy = 'warn';
+      return true;
+    case '--pin-file':
+      opts.pin = true;
+      opts.pinFile = takeVal();
+      return true;
+    case '--pin-policy': {
+      const v = takeVal();
+      if (v !== 'off' && v !== 'warn' && v !== 'block' && v !== 'update') {
+        throw new Error(`invalid --pin-policy: ${v} (expected off|warn|block|update)`);
+      }
+      opts.pin = true;
+      opts.pinPolicy = v;
+      return true;
+    }
+    default:
+      return false;
+  }
 }
 
 /** Loosely-typed JSON-RPC envelope as parsed off the wire. */
@@ -102,10 +154,19 @@ export async function runWrap(cmd: string, args: string[], opts: WrapOptions): P
   const annotations = new Map<string, MCPToolAnnotations>();
   const pending = new Map<string, PendingEntry>();
 
+  // Tool-definition pinning config (rug-pull / tool-poisoning detection).
+  const pinningEnabled = opts.pin === true;
+  const pinFile = opts.pinFile ?? DEFAULT_PIN_FILE;
+  const pinPolicy: PinPolicy = opts.pinPolicy ?? 'warn';
+  const serverLabel = cmd;
+
   logLine(
     `wrapping: ${cmd} ${args.join(' ')} | policy=${opts.policyPath ?? 'fail-closed-default'} ` +
       `| fail-${opts.failMode} | session=${sessionId.slice(0, 8)}`
   );
+  if (pinningEnabled) {
+    logLine(`pin: enabled | file=${pinFile} | policy=${pinPolicy}`);
+  }
 
   const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
   const childStdin = child.stdin;
@@ -187,6 +248,101 @@ export async function runWrap(cmd: string, args: string[], opts: WrapOptions): P
       }
     }
     logLine(`learned annotations for ${annotations.size} tool(s)`);
+  }
+
+  /**
+   * Extract the security-relevant tool definitions from a tools/list response.
+   * Returns null when there is no valid `tools` array (e.g. an error response),
+   * so pinning is skipped rather than mis-reading it as "all tools removed".
+   */
+  function extractToolDefs(response: RpcMessage): McpToolDefinition[] | null {
+    const result = response.result;
+    if (!result || typeof result !== 'object') return null;
+    const tools = (result as { tools?: unknown }).tools;
+    if (!Array.isArray(tools)) return null;
+    const defs: McpToolDefinition[] = [];
+    for (const t of tools) {
+      if (t && typeof t === 'object') {
+        const rec = t as Record<string, unknown>;
+        if (typeof rec.name === 'string') {
+          const def: McpToolDefinition = { name: rec.name };
+          if (typeof rec.description === 'string') def.description = rec.description;
+          if ('inputSchema' in rec) def.inputSchema = rec.inputSchema;
+          defs.push(def);
+        }
+      }
+    }
+    return defs;
+  }
+
+  /**
+   * Learn annotations, then (if pinning is enabled) diff the advertised tool
+   * definitions against the pinned baseline and enforce the pin policy. On a
+   * `block` verdict the poisoned tools/list is NOT forwarded — the client gets
+   * a fail-closed JSON-RPC error instead.
+   */
+  function handleToolsListResponse(msg: RpcMessage): void {
+    cacheAnnotations(msg);
+    if (!pinningEnabled) {
+      toClient(msg);
+      return;
+    }
+
+    const defs = extractToolDefs(msg);
+    if (defs === null) {
+      // Error response / malformed result: nothing to pin, pass through.
+      toClient(msg);
+      return;
+    }
+
+    let store: PinStore | null;
+    try {
+      store = loadPinStore(pinFile);
+    } catch (err) {
+      // Corrupt lock file: surface loudly but do not overwrite it or break the
+      // client — forward the tools/list unchecked this session.
+      logLine(
+        `pin: cannot read pin store ${pinFile}: ${err instanceof Error ? err.message : String(err)}; ` +
+          `forwarding tools/list WITHOUT pin check`
+      );
+      toClient(msg);
+      return;
+    }
+
+    const firstRun = store === null;
+    const effectiveStore = store ?? createEmptyPinStore(serverLabel);
+    const diff = diffToolsAgainstPins(defs, effectiveStore);
+    const decision = applyPinPolicy(diff, pinPolicy);
+    for (const line of decision.messages) logLine(line);
+
+    if (decision.block) {
+      const req: JSONRPCRequest = { jsonrpc: '2.0', id: msg.id ?? null, method: 'tools/list' };
+      toClient(
+        mediator.createBlockResponse(
+          req,
+          decision.blockReason ?? 'tool-definition pin violation',
+          TaintGateErrorCodes.POLICY_VIOLATION
+        )
+      );
+      return;
+    }
+
+    if (decision.persist) {
+      const updated = recordDiffIntoStore(effectiveStore, diff, pinPolicy);
+      try {
+        savePinStore(pinFile, updated);
+        logLine(
+          `pin: ${firstRun ? 'created' : 'updated'} pin store ${pinFile} ` +
+            `(${Object.keys(updated.tools).length} tool(s) pinned)`
+        );
+      } catch (err) {
+        logLine(
+          `pin: failed to write pin store ${pinFile}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+
+    toClient(msg);
   }
 
   async function handleToolCall(msg: RpcMessage): Promise<void> {
@@ -311,8 +467,7 @@ export async function runWrap(cmd: string, args: string[], opts: WrapOptions): P
     pending.delete(key);
 
     if (entry.kind === 'toolslist') {
-      cacheAnnotations(msg);
-      toClient(msg);
+      handleToolsListResponse(msg);
       return;
     }
 

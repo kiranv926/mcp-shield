@@ -93,6 +93,7 @@
   },
   "files": [
     "dist",
+    "policies",
     "README.md",
     "LICENSE",
     "ARCHITECTURE.md",

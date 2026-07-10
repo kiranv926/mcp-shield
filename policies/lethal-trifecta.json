@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0-lethal-trifecta",
+  "global": {
+    "riskThresholds": {
+      "allow": 0.2,
+      "block": 0.4
+    },
+    "weights": {
+      "sensitivity": 0.5,
+      "exposure": 0.5
+    },
+    "enabled": true
+  },
+  "tools": {
+    "slack:post_message": { "actionOverride": "BLOCK", "enabled": true },
+    "slack:send_message": { "actionOverride": "BLOCK", "enabled": true },
+    "email:send": { "actionOverride": "BLOCK", "enabled": true },
+    "gmail:send": { "actionOverride": "BLOCK", "enabled": true },
+    "http:request": { "actionOverride": "BLOCK", "enabled": true },
+    "fetch:fetch": { "actionOverride": "BLOCK", "enabled": true },
+    "web:fetch_url": { "actionOverride": "BLOCK", "enabled": true },
+    "browser:navigate": { "actionOverride": "BLOCK", "enabled": true },
+    "github:create_issue": { "actionOverride": "BLOCK", "enabled": true },
+    "github:create_pull_request": { "actionOverride": "BLOCK", "enabled": true },
+    "twitter:post": { "actionOverride": "BLOCK", "enabled": true },
+    "database:read_row": { "actionOverride": "REDACT", "enabled": true },
+    "database:query": { "actionOverride": "REDACT", "enabled": true },
+    "filesystem:read_file": { "actionOverride": "REDACT", "enabled": true },
+    "secrets:get": { "actionOverride": "REDACT", "enabled": true }
+  }
+}

@@ -92,6 +92,49 @@ Thresholds and weights are configurable per tenant and per tool via policy. **Fa
 
 ---
 
+## Scan your installed servers
+
+Before you wrap anything, audit what you already have. `taintgate scan` statically inspects your existing MCP client configs (Claude Desktop, Cursor, Windsurf, VS Code) and flags risky servers — secrets sitting in `env`, filesystem servers pointed at your whole home directory, unpinned `npx`/`uvx` packages pulled from the network, plaintext remote endpoints, and shell/DB commands. It never executes or connects to any server; it only reads config files.
+
+```bash
+npx taintgate scan            # audit auto-discovered configs
+npx taintgate scan --json     # machine-readable, CI-friendly (exit 1 on HIGH+)
+```
+
+```
+    • github  [HIGH]
+        [HIGH  ] env "GITHUB_PERSONAL_ACCESS_TOKEN" contains a plaintext secret (GitHub token).
+                 ↳ Move this secret out of the config into a runtime-injected env var.
+        [MEDIUM] runs "npx @modelcontextprotocol/server-github" — unpinned package fetched at launch.
+```
+
+## Pin tool definitions (rug-pull / tool-poisoning protection)
+
+A server you trusted can silently change a tool's description or input schema after you approved it — a "rug pull," and the vector behind tool-poisoning attacks. With `--pin`, TaintGate hashes every tool definition on first sight and detects any later change:
+
+```bash
+taintgate wrap --pin --pin-policy block -- npx -y @some/mcp-server
+```
+
+Policies: `warn` (default — log the drift, allow), `block` (refuse to forward a `tools/list` whose pinned definitions changed), `update` (trust-on-first-use re-pin), `off`. A poisoned description under `block` looks like:
+
+```
+[taintgate] pin: BLOCK — refusing to forward tools/list; tool definition(s) changed since pinning
+[taintgate] pin: CHANGED tool "echo" — DESCRIPTION changed (possible tool poisoning / rug pull)
+```
+
+## Lethal-trifecta protection
+
+The "lethal trifecta" — private-data access **+** exposure to untrusted content **+** an outbound channel — is the core MCP exfiltration risk. TaintGate's taint tracking is built for exactly this: it blocks the write *because* the data came from a sensitive read, not just because a payload looks bad. Ship the tuned policy pack:
+
+```bash
+taintgate wrap --policy node_modules/taintgate/policies/lethal-trifecta.json -- <server>
+```
+
+It weights exposure heavily, drops the block threshold, and hard-blocks common egress sinks (Slack/email/HTTP/GitHub/browser) so tainted data can't leave.
+
+---
+
 ## Use it as a library
 
 The CLI is a thin wrapper over the library, which you can embed directly in a TypeScript MCP client or server. The building blocks (sketch):

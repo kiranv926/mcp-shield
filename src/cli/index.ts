@@ -8,7 +8,8 @@
  */
 
 import { getVersion } from './version';
-import { runWrap, type WrapOptions } from './wrap';
+import { runWrap, parseWrapPinFlag, type WrapOptions } from './wrap';
+import { runScan } from './scan';
 import { writeInitConfig, DEFAULT_POLICY_FILENAME } from './defaultPolicy';
 
 /** User-facing error that should print cleanly without a stack trace. */
@@ -18,12 +19,15 @@ const HELP = `taintgate — governance proxy for the Model Context Protocol (MCP
 
 USAGE
   taintgate wrap [options] -- <server-command> [server-args...]
+  taintgate scan [options]
   taintgate init-config [path]
   taintgate --help | --version
 
 COMMANDS
   wrap          Sit transparently between an MCP client and server, enforcing
                 ALLOW / BLOCK / REDACT governance on tools/call traffic.
+  scan          Statically audit already-installed MCP server configs (Claude
+                Desktop, Cursor, ...) and flag risky ones. No proxy setup.
   init-config   Write a starter policy file (default: ./${DEFAULT_POLICY_FILENAME}).
 
 WRAP OPTIONS
@@ -32,6 +36,11 @@ WRAP OPTIONS
   --log <dir>       Directory for JSONL audit logs (default: ./taintgate-logs).
   --fail-closed     On governance/internal error, BLOCK the request (default).
   --fail-open       On governance/internal error, pass the request through.
+  --pin             Pin tool definitions and detect rug-pulls / tool poisoning
+                    (a server silently changing a tool's description or schema).
+  --pin-file <path> Pin store location (default: ./taintgate.lock.json).
+  --pin-policy <p>  off | warn (default) | block | update. "block" refuses to
+                    forward a tools/list whose pinned definitions changed.
 
 EXAMPLE (claude_desktop_config.json)
   "mcpServers": {
@@ -82,7 +91,9 @@ function parseWrapFlags(flags: string[]): WrapOptions {
         opts.failMode = 'closed';
         break;
       default:
-        throw new CliError(`unknown wrap option: ${key} (try --help)`);
+        if (!parseWrapPinFlag(key, takeVal, opts)) {
+          throw new CliError(`unknown wrap option: ${key} (try --help)`);
+        }
     }
   }
   return opts;
@@ -104,6 +115,10 @@ async function main(): Promise<void> {
   if (first === '--version' || first === '-v') {
     process.stdout.write(`${getVersion()}\n`);
     return;
+  }
+  if (first === 'scan') {
+    // runScan owns its exit code (0 clean / 1 HIGH+ finding / 2 flag error).
+    process.exit(await runScan(argv.slice(1)));
   }
   if (first === 'init-config') {
     runInitConfig(argv[1]);
